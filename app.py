@@ -68,10 +68,10 @@ def build_whatsapp_url(cliente: str, producto: str, deuda_usd: float, tasa_bcv: 
 
 def get_csv_templates() -> dict[str, pd.DataFrame]:
     return {
-        "Productos / Inventario": pd.DataFrame(
+        "📦 Productos / Inventario": pd.DataFrame(
             columns=["nombre", "costo", "precio_divisa", "precio_bcv", "stock"]
         ),
-        "Ventas Históricas": pd.DataFrame(
+        "🛍️ Ventas Históricas": pd.DataFrame(
             columns=[
                 "fecha",
                 "cliente",
@@ -85,7 +85,7 @@ def get_csv_templates() -> dict[str, pd.DataFrame]:
                 "estatus",
             ]
         ),
-        "Historial de Pagos / Cuotas": pd.DataFrame(
+        "💰 Historial de Pagos / Cuotas": pd.DataFrame(
             columns=[
                 "venta_id",
                 "fecha",
