@@ -69,36 +69,206 @@ def build_whatsapp_url(cliente: str, producto: str, deuda_usd: float, tasa_bcv: 
 def get_csv_templates() -> dict[str, pd.DataFrame]:
     return {
         "📦 Productos / Inventario": pd.DataFrame(
-            columns=["nombre", "costo", "precio_divisa", "precio_bcv", "stock"]
+            columns=[
+                "Producto",
+                "Costo ($)",
+                "Precio (Divisa o tasa USDT)",
+                "Precio tasa BCV",
+                "Stock",
+            ]
         ),
         "🛍️ Ventas Históricas": pd.DataFrame(
             columns=[
-                "fecha",
-                "cliente",
-                "vendedor",
-                "producto",
-                "precio_venta",
-                "costo",
-                "ganancia",
-                "moneda",
-                "deuda",
-                "estatus",
+                "Producto",
+                "Cliente",
+                "Vendedor",
+                "Precio Venta ($)",
+                "Costo ($)",
+                "Ganancia ($)",
+                "Moneda",
+                "Deuda ($)",
+                "Estatus",
             ]
         ),
         "💰 Historial de Pagos / Cuotas": pd.DataFrame(
             columns=[
-                "venta_id",
-                "fecha",
-                "cliente",
-                "producto",
-                "monto_bs",
-                "monto_usd",
-                "referencia",
-                "tasa_bcv",
-                "nro_cuota",
+                "Fecha de Pago",
+                "Cliente",
+                "Producto",
+                "Monto Pagado ($)",
+                "Moneda",
+                "Fecha Compra (Si es BCV)",
+                "Tasa Venta (Si es BCV)",
+                "Total en Bs",
+                "Referencia",
+                "Nro Cuota",
+                "Venta ID",
             ]
         ),
     }
+
+
+def normalize_column_name(column: str) -> str:
+    normalized = str(column).strip().lower()
+    replacements = {
+        "(": "",
+        ")": "",
+        "$": "",
+        ",": "",
+        ".": "",
+        ":": "",
+        "%": "",
+        "-": "_",
+        "/": "_",
+        " ": "_",
+        "á": "a",
+        "é": "e",
+        "í": "i",
+        "ó": "o",
+        "ú": "u",
+        "ñ": "n",
+    }
+    for old, new in replacements.items():
+        normalized = normalized.replace(old, new)
+    return normalized
+
+
+COLUMN_FIELD_MAP = {
+    "producto": "producto",
+    "cliente": "cliente",
+    "vendedor": "vendedor",
+    "precio_venta": "precio_venta",
+    "precio_venta_": "precio_venta",
+    "precio_venta_dolares": "precio_venta",
+    "precio_venta_usd": "precio_venta",
+    "precio_venta_": "precio_venta",
+    "precio_divisa_o_tasa_usdt": "precio_divisa",
+    "precio_divisa": "precio_divisa",
+    "precio_tasa_bcv": "precio_bcv",
+    "costo": "costo",
+    "costo_": "costo",
+    "ganancia": "ganancia",
+    "moneda": "moneda",
+    "deuda": "deuda",
+    "deuda_": "deuda",
+    "fecha": "fecha",
+    "fecha_de_pago": "fecha",
+    "fecha_compra_si_es_bcv": "fecha",
+    "venta_id": "venta_id",
+    "estatus": "estatus",
+    "monto_pagado": "monto_pagado",
+    "monto_pagado_": "monto_pagado",
+    "monto_bs": "monto_bs",
+    "monto_usd": "monto_usd",
+    "referencia": "referencia",
+    "tasa_bcv": "tasa_bcv",
+    "nro_cuota": "nro_cuota",
+    "total_en_bs": "total_en_bs",
+}
+
+
+def parse_numeric_value(value: object) -> float | None:
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    if text == "":
+        return None
+    text = text.replace("$", "").replace("Bs", "").replace("bs", "").replace(",", "")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def preprocess_uploaded_csv(uploaded_file) -> pd.DataFrame:
+    for header_row in range(0, 6):
+        try:
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, header=header_row, dtype=str)
+        except Exception:
+            continue
+
+        normalized_columns = [normalize_column_name(col) for col in df.columns]
+        if any(name in normalized_columns for name in ["producto", "cliente", "fecha", "monto_pagado", "venta_id"]):
+            return df
+
+    uploaded_file.seek(0)
+    return pd.read_csv(uploaded_file, dtype=str)
+
+
+def map_uploaded_columns(df: pd.DataFrame) -> pd.DataFrame:
+    mapped = {}
+    for col in df.columns:
+        normalized = normalize_column_name(col)
+        mapped[col] = COLUMN_FIELD_MAP.get(normalized, normalized)
+    df = df.rename(columns=mapped)
+
+    drop_cols = [c for c in df.columns if c.startswith("unnamed") and df[c].isna().all()]
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+
+    if "" in df.columns:
+        df = df.drop(columns=[""])
+
+    return df
+
+
+def prepare_import_dataframe(df: pd.DataFrame, entity: str) -> pd.DataFrame:
+    df = map_uploaded_columns(df)
+
+    if entity == "📦 Productos / Inventario":
+        if "stock" not in df.columns:
+            df["stock"] = 0
+        if "precio_divisa" not in df.columns:
+            df["precio_divisa"] = 0.0
+        if "precio_bcv" not in df.columns:
+            df["precio_bcv"] = 0.0
+        if "costo" not in df.columns:
+            df["costo"] = 0.0
+
+    if entity == "🛍️ Ventas Históricas":
+        if "estatus" not in df.columns:
+            df["estatus"] = "PENDIENTE"
+        if "cantidad" not in df.columns:
+            df["cantidad"] = 1
+        if "deuda" not in df.columns:
+            df["deuda"] = 0.0
+
+    if entity == "💰 Historial de Pagos / Cuotas":
+        if "venta_id" not in df.columns:
+            df["venta_id"] = 0
+        if "referencia" not in df.columns:
+            df["referencia"] = ""
+        if "tasa_bcv" not in df.columns:
+            df["tasa_bcv"] = 0.0
+        if "nro_cuota" not in df.columns:
+            df["nro_cuota"] = 1
+        if "monto_bs" not in df.columns:
+            df["monto_bs"] = None
+        if "monto_usd" not in df.columns:
+            df["monto_usd"] = None
+
+        if "monto_pagado" in df.columns and "moneda" in df.columns:
+            monto_bs = []
+            monto_usd = []
+            moneda_values = df["moneda"].fillna("").astype(str).str.lower()
+            for idx, row in df.iterrows():
+                monto_value = parse_numeric_value(row.get("monto_pagado"))
+                total_en_bs_value = parse_numeric_value(row.get("total_en_bs"))
+                if "usd" in moneda_values.iloc[idx]:
+                    monto_usd.append(monto_value)
+                    monto_bs.append(None)
+                elif "bcv" in moneda_values.iloc[idx] or "bs" in moneda_values.iloc[idx] or "bolivar" in moneda_values.iloc[idx]:
+                    monto_bs.append(total_en_bs_value if total_en_bs_value is not None else monto_value)
+                    monto_usd.append(None)
+                else:
+                    monto_bs.append(total_en_bs_value if total_en_bs_value is not None else monto_value)
+                    monto_usd.append(monto_value)
+
+            df["monto_bs"] = monto_bs
+            df["monto_usd"] = monto_usd
+
+    return df
 
 
 def validate_csv_columns(df: pd.DataFrame, required_columns: list[str]) -> tuple[bool, list[str]]:
@@ -394,10 +564,8 @@ elif selected_section == "📥 Carga Masiva (CSV)":
     uploaded_file = st.file_uploader("Sube tu archivo CSV", type=["csv"])
     if uploaded_file is not None:
         try:
-            csv_df = pd.read_csv(uploaded_file)
-            st.subheader("Previsualización de datos")
-            st.dataframe(csv_df.head(), use_container_width=True)
-
+                    csv_df = preprocess_uploaded_csv(uploaded_file)
+                    csv_df = prepare_import_dataframe(csv_df, entity)
             col1, col2 = st.columns(2)
             with col1:
                 render_metric_card("Total de Filas", str(len(csv_df)), "📊", "#7c3aed")
