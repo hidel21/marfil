@@ -547,7 +547,11 @@ elif selected_section == "📥 Carga Masiva (CSV)":
     )
 
     templates = get_csv_templates()
-    template_df = templates[entity]
+    template_df = templates.get(entity)
+    if template_df is None:
+        st.error("No se encontró la plantilla para la entidad seleccionada. Reinicia la app o selecciona otra opción.")
+        templates = get_csv_templates()
+        template_df = next(iter(templates.values()))
 
     st.markdown("**Descarga una plantilla de ejemplo**")
     template_cols = st.columns(3)
@@ -564,8 +568,8 @@ elif selected_section == "📥 Carga Masiva (CSV)":
     uploaded_file = st.file_uploader("Sube tu archivo CSV", type=["csv"])
     if uploaded_file is not None:
         try:
-                    csv_df = preprocess_uploaded_csv(uploaded_file)
-                    csv_df = prepare_import_dataframe(csv_df, entity)
+            csv_df = preprocess_uploaded_csv(uploaded_file)
+            csv_df = prepare_import_dataframe(csv_df, entity)
             col1, col2 = st.columns(2)
             with col1:
                 render_metric_card("Total de Filas", str(len(csv_df)), "📊", "#7c3aed")
@@ -579,7 +583,7 @@ elif selected_section == "📥 Carga Masiva (CSV)":
 
             required_map = {
                 "📦 Productos / Inventario": [
-                    "nombre",
+                    "producto",
                     "costo",
                     "precio_divisa",
                     "precio_bcv",
@@ -610,7 +614,7 @@ elif selected_section == "📥 Carga Masiva (CSV)":
                 ],
             }
 
-            required_columns = required_map[entity]
+            required_columns = required_map.get(entity, [])
             valid_columns, missing_columns = validate_csv_columns(csv_df, required_columns)
             if not valid_columns:
                 st.error(
@@ -626,7 +630,7 @@ elif selected_section == "📥 Carga Masiva (CSV)":
                         for idx, row in csv_df.iterrows():
                             if entity == "📦 Productos / Inventario":
                                 producto = Producto(
-                                    nombre=str(row["nombre"]).strip(),
+                                    nombre=str(row["producto"]).strip(),
                                     costo=convert_csv_value(row["costo"], float) or 0.0,
                                     precio_divisa=convert_csv_value(row["precio_divisa"], float) or 0.0,
                                     precio_bcv=convert_csv_value(row["precio_bcv"], float) or 0.0,
