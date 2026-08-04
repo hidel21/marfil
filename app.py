@@ -1,4 +1,5 @@
 from datetime import date
+from math import isfinite
 from urllib.parse import quote_plus
 
 import pandas as pd
@@ -31,18 +32,10 @@ from database import (
     test_connection,
 )
 from services.pdf_generator import generar_recibo_pdf
-from services.rates import format_currency, obtener_todas_las_tasas
+from services.rates import format_currency, obtener_tasas_con_estado, obtener_todas_las_tasas
 
-def render_metric_card(title: str, value: str, icon: str, accent: str = "#7c3aed") -> None:
-    st.markdown(
-        f"""
-        <div class="metric-card">
-            <div class="metric-card-title">{icon} {title}</div>
-            <div class="metric-card-value">{value}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+def render_metric_card(title: str, value: str, icon: str, _accent: str = "#7c3aed") -> None:
+    st.metric(title, value, icon=icon, border=True)
 
 
 def build_whatsapp_message(cliente: str, producto: str, deuda_usd: float, tasa_bcv: float) -> str:
@@ -79,9 +72,11 @@ def get_csv_templates() -> dict[str, pd.DataFrame]:
         ),
         "🛍️ Ventas Históricas": pd.DataFrame(
             columns=[
+                "Fecha",
                 "Producto",
                 "Cliente",
                 "Vendedor",
+                "Cantidad",
                 "Precio Venta ($)",
                 "Costo ($)",
                 "Ganancia ($)",
@@ -93,16 +88,14 @@ def get_csv_templates() -> dict[str, pd.DataFrame]:
         "💰 Historial de Pagos / Cuotas": pd.DataFrame(
             columns=[
                 "Fecha de Pago",
+                "Venta ID",
                 "Cliente",
                 "Producto",
-                "Monto Pagado ($)",
-                "Moneda",
-                "Fecha Compra (Si es BCV)",
-                "Tasa Venta (Si es BCV)",
-                "Total en Bs",
+                "Monto Bs",
+                "Monto USD",
                 "Referencia",
+                "Tasa BCV",
                 "Nro Cuota",
-                "Venta ID",
             ]
         ),
     }
@@ -141,19 +134,20 @@ COLUMN_FIELD_MAP = {
     "precio_venta_": "precio_venta",
     "precio_venta_dolares": "precio_venta",
     "precio_venta_usd": "precio_venta",
-    "precio_venta_": "precio_venta",
     "precio_divisa_o_tasa_usdt": "precio_divisa",
     "precio_divisa": "precio_divisa",
     "precio_tasa_bcv": "precio_bcv",
     "costo": "costo",
     "costo_": "costo",
     "ganancia": "ganancia",
+    "ganancia_": "ganancia",
     "moneda": "moneda",
     "deuda": "deuda",
     "deuda_": "deuda",
+    "cantidad": "cantidad",
     "fecha": "fecha",
     "fecha_de_pago": "fecha",
-    "fecha_compra_si_es_bcv": "fecha",
+    "fecha_compra_si_es_bcv": "fecha_compra",
     "venta_id": "venta_id",
     "estatus": "estatus",
     "monto_pagado": "monto_pagado",
@@ -162,6 +156,7 @@ COLUMN_FIELD_MAP = {
     "monto_usd": "monto_usd",
     "referencia": "referencia",
     "tasa_bcv": "tasa_bcv",
+    "tasa_venta_si_es_bcv": "tasa_bcv",
     "nro_cuota": "nro_cuota",
     "total_en_bs": "total_en_bs",
 }
@@ -173,11 +168,66 @@ def parse_numeric_value(value: object) -> float | None:
     text = str(value).strip()
     if text == "":
         return None
-    text = text.replace("$", "").replace("Bs", "").replace("bs", "").replace(",", "")
+    text = (
+        text.replace("$", "")
+        .replace("Bs.", "")
+        .replace("bs.", "")
+        .replace("Bs", "")
+        .replace("bs", "")
+        .replace("\u00a0", "")
+        .replace(" ", "")
+    )
+
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
+        integer, decimal = text.rsplit(",", 1)
+        text = f"{integer.replace(',', '')}.{decimal}" if len(decimal) <= 2 else text.replace(",", "")
+    elif text.count(".") > 1:
+        integer, decimal = text.rsplit(".", 1)
+        text = f"{integer.replace('.', '')}.{decimal}"
+    elif "." in text:
+        integer, decimal = text.rsplit(".", 1)
+        if len(decimal) == 3:
+            text = integer + decimal
+
     try:
-        return float(text)
+        number = float(text)
+        return number if isfinite(number) else None
     except ValueError:
         return None
+
+
+def convert_csv_value(value: object, target_type: type[float] | type[int]):
+    number = parse_numeric_value(value)
+    if number is None:
+        if pd.isna(value) or str(value).strip() == "":
+            return None
+        raise ValueError(f"Valor numérico inválido: {value!r}")
+    if target_type is int:
+        if not number.is_integer():
+            raise ValueError(f"Se esperaba un número entero y se recibió: {value!r}")
+        return int(number)
+    return float(number)
+
+
+def parse_csv_date(value: object) -> date:
+    parsed = pd.to_datetime(value, errors="coerce", dayfirst=True)
+    if pd.isna(parsed):
+        raise ValueError(f"Fecha inválida: {value!r}")
+    return parsed.date()
+
+
+def require_csv_text(value: object, field_name: str) -> str:
+    if pd.isna(value):
+        raise ValueError(f"El campo {field_name} es obligatorio.")
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"El campo {field_name} es obligatorio.")
+    return text
 
 
 def preprocess_uploaded_csv(uploaded_file) -> pd.DataFrame:
@@ -201,6 +251,12 @@ def map_uploaded_columns(df: pd.DataFrame) -> pd.DataFrame:
     for col in df.columns:
         normalized = normalize_column_name(col)
         mapped[col] = COLUMN_FIELD_MAP.get(normalized, normalized)
+
+    mapped_names = list(mapped.values())
+    duplicated = sorted({name for name in mapped_names if mapped_names.count(name) > 1})
+    if duplicated:
+        raise ValueError(f"Hay columnas duplicadas después de normalizar: {', '.join(duplicated)}.")
+
     df = df.rename(columns=mapped)
 
     drop_cols = [c for c in df.columns if c.startswith("unnamed") and df[c].isna().all()]
@@ -216,16 +272,6 @@ def map_uploaded_columns(df: pd.DataFrame) -> pd.DataFrame:
 def prepare_import_dataframe(df: pd.DataFrame, entity: str) -> pd.DataFrame:
     df = map_uploaded_columns(df)
 
-    if entity == "📦 Productos / Inventario":
-        if "stock" not in df.columns:
-            df["stock"] = 0
-        if "precio_divisa" not in df.columns:
-            df["precio_divisa"] = 0.0
-        if "precio_bcv" not in df.columns:
-            df["precio_bcv"] = 0.0
-        if "costo" not in df.columns:
-            df["costo"] = 0.0
-
     if entity == "🛍️ Ventas Históricas":
         if "estatus" not in df.columns:
             df["estatus"] = "PENDIENTE"
@@ -235,12 +281,6 @@ def prepare_import_dataframe(df: pd.DataFrame, entity: str) -> pd.DataFrame:
             df["deuda"] = 0.0
 
     if entity == "💰 Historial de Pagos / Cuotas":
-        if "venta_id" not in df.columns:
-            df["venta_id"] = 0
-        if "referencia" not in df.columns:
-            df["referencia"] = ""
-        if "tasa_bcv" not in df.columns:
-            df["tasa_bcv"] = 0.0
         if "nro_cuota" not in df.columns:
             df["nro_cuota"] = 1
         if "monto_bs" not in df.columns:
@@ -251,22 +291,31 @@ def prepare_import_dataframe(df: pd.DataFrame, entity: str) -> pd.DataFrame:
         if "monto_pagado" in df.columns and "moneda" in df.columns:
             monto_bs = []
             monto_usd = []
-            moneda_values = df["moneda"].fillna("").astype(str).str.lower()
             for idx, row in df.iterrows():
                 monto_value = parse_numeric_value(row.get("monto_pagado"))
                 total_en_bs_value = parse_numeric_value(row.get("total_en_bs"))
-                if "usd" in moneda_values.iloc[idx]:
+                tasa_value = parse_numeric_value(row.get("tasa_bcv"))
+                moneda_value = str(row.get("moneda", "")).lower()
+                if "usd" in moneda_value:
                     monto_usd.append(monto_value)
-                    monto_bs.append(None)
-                elif "bcv" in moneda_values.iloc[idx] or "bs" in moneda_values.iloc[idx] or "bolivar" in moneda_values.iloc[idx]:
-                    monto_bs.append(total_en_bs_value if total_en_bs_value is not None else monto_value)
-                    monto_usd.append(None)
+                    monto_bs.append(0.0)
+                elif "bcv" in moneda_value or "bs" in moneda_value or "bolivar" in moneda_value:
+                    bs_value = total_en_bs_value if total_en_bs_value is not None else monto_value
+                    monto_bs.append(bs_value)
+                    monto_usd.append(bs_value / tasa_value if bs_value is not None and tasa_value else None)
                 else:
-                    monto_bs.append(total_en_bs_value if total_en_bs_value is not None else monto_value)
+                    monto_bs.append(total_en_bs_value or 0.0)
                     monto_usd.append(monto_value)
 
             df["monto_bs"] = monto_bs
             df["monto_usd"] = monto_usd
+
+        for idx, row in df.iterrows():
+            monto_bs_value = parse_numeric_value(row.get("monto_bs"))
+            monto_usd_value = parse_numeric_value(row.get("monto_usd"))
+            tasa_value = parse_numeric_value(row.get("tasa_bcv"))
+            if monto_usd_value is None and monto_bs_value is not None and tasa_value:
+                df.at[idx, "monto_usd"] = monto_bs_value / tasa_value
 
     return df
 
@@ -276,43 +325,20 @@ def validate_csv_columns(df: pd.DataFrame, required_columns: list[str]) -> tuple
     return len(missing) == 0, missing
 
 
-def inject_global_styles() -> None:
-    st.markdown(
-        """
-        <style>
-            /* Forzar fondo oscuro y texto legible en las métricas del Sidebar */
-            [data-testid="stMetric"] {
-                background-color: #1E293B !important;
-                border: 1px solid #334155 !important;
-                border-radius: 8px !important;
-                padding: 15px !important;
-            }
-            [data-testid="stMetricValue"] {
-                color: #10B981 !important;
-                font-size: 1.4rem !important;
-                font-weight: bold !important;
-            }
-            [data-testid="stMetricLabel"] {
-                color: #F8FAFC !important;
-                font-weight: 600 !important;
-            }
-            .st-emotion-cache-1jicfl2 { padding: 2rem 1rem; }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def render_sidebar_metrics() -> tuple[float, float, float, float]:
     st.markdown("---")
     st.subheader("💱 Tasas de Cambio")
-    tasa_usd_bcv, tasa_eur_bcv, tasa_binance, tasa_usdt_com_ve = obtener_todas_las_tasas()
+    rates, fallback_rates = obtener_tasas_con_estado()
+    tasa_usd_bcv, tasa_eur_bcv, tasa_binance, tasa_usdt_com_ve = rates
     render_metric_card("💵 Dólar BCV", f"Bs. {tasa_usd_bcv:,.2f}", "💵", "#2563eb")
     render_metric_card("💶 Euro BCV", f"Bs. {tasa_eur_bcv:,.2f}", "💶", "#0e7490")
     render_metric_card("🟡 Binance USDT", f"Bs. {tasa_binance:,.2f}", "🟡", "#d97706")
     render_metric_card("🔵 USDT.com.ve mejor", f"Bs. {tasa_usdt_com_ve:,.2f}", "🔵", "#16a34a")
 
-    if st.button("🔄 Actualizar Tasas", use_container_width=True):
+    if fallback_rates:
+        st.warning(f"Sin actualización en vivo: {', '.join(fallback_rates)}. Se muestran valores de respaldo.")
+
+    if st.button("🔄 Actualizar Tasas", width="stretch"):
         st.cache_data.clear()
         st.rerun()
 
@@ -334,14 +360,14 @@ def render_sidebar_controls(rates: tuple[float, float, float, float]) -> None:
         st.markdown(f"**Monto a transferir: {format_currency(monto_bs_cobrar)}**")
 
     st.markdown("---")
-    if st.button("Inicializar base de datos", use_container_width=True):
+    if st.button("Inicializar base de datos", width="stretch"):
         try:
             init_db()
             st.success("Tablas creadas correctamente.")
         except Exception as exc:
             st.error(f"No se pudo inicializar la base de datos: {exc}")
 
-    if st.button("Cargar datos de ejemplo", use_container_width=True):
+    if st.button("Cargar datos de ejemplo", width="stretch"):
         try:
             seed_sample_data()
             st.success("Datos de ejemplo cargados.")
@@ -366,7 +392,6 @@ def render_sidebar_navigation() -> str:
 
 
 st.set_page_config(page_title="Sistema Marfil", page_icon="🌸", layout="wide")
-inject_global_styles()
 st.title("🌸 Sistema Marfil MVP")
 st.caption("Gestión de inventario, ventas y cobranza en cuotas")
 
@@ -440,7 +465,7 @@ if selected_section == "📲 Cobranza & WhatsApp":
                         f"**Pagos Registrados:** {pagos_count}  \\"
                         f"**Total en Bolívares:** Bs. {total_bs:,.2f}"
                     )
-                    st.link_button("📲 Enviar Recordatorio", whatsapp_url, use_container_width=True)
+                    st.link_button("📲 Enviar Recordatorio", whatsapp_url, width="stretch")
     except Exception as exc:
         st.error(f"No se pudo cargar el módulo de cobranza: {exc}")
 elif selected_section == "📄 Recibos & Reportes":
@@ -462,7 +487,7 @@ elif selected_section == "📄 Recibos & Reportes":
                     payments_df[
                         ["id", "fecha", "cliente", "vendedor", "producto", "monto_bs", "monto_usd", "referencia", "nro_cuota", "saldo_usd", "estatus"]
                     ],
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 for _, row in payments_df.iterrows():
@@ -498,7 +523,7 @@ elif selected_section == "📄 Recibos & Reportes":
                             pdf_bytes,
                             file_name=f"Recibo_Pago_{int(row['id'])}.pdf",
                             mime="application/pdf",
-                            use_container_width=True,
+                            width="stretch",
                         )
 
             with tab_export:
@@ -517,21 +542,21 @@ elif selected_section == "📄 Recibos & Reportes":
                     inventario_csv,
                     file_name="inventario_marfil.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.download_button(
                     "📥 Exportar Historial de Ventas",
                     ventas_csv,
                     file_name="ventas_marfil.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.download_button(
                     "📥 Exportar Historial de Pagos",
                     pagos_csv,
                     file_name="pagos_marfil.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                 )
     except Exception as exc:
         st.error(f"No se pudo cargar el módulo de recibos y reportes: {exc}")
@@ -562,7 +587,7 @@ elif selected_section == "📥 Carga Masiva (CSV)":
                 df_template.to_csv(index=False).encode("utf-8"),
                 file_name=f"plantilla_{name.replace(' ', '_').replace('/', '').lower()}.csv",
                 mime="text/csv",
-                use_container_width=True,
+                width="stretch",
             )
 
     uploaded_file = st.file_uploader("Sube tu archivo CSV", type=["csv"])
@@ -620,72 +645,101 @@ elif selected_section == "📥 Carga Masiva (CSV)":
                 st.error(
                     f"Faltan columnas obligatorias: {', '.join(missing_columns)}. Usa la plantilla de ejemplo para corregir el formato."
                 )
+            elif csv_df.empty:
+                st.warning("El archivo no contiene filas para importar.")
             else:
-                if st.button("🚀 Cargar Datos a la Base de Datos", use_container_width=True):
+                if st.button("🚀 Cargar Datos a la Base de Datos", width="stretch"):
                     session = db.get_session()
+                    current_row = 1
                     try:
                         total_rows = len(csv_df)
                         progress = st.progress(0)
                         inserted = 0
-                        for idx, row in csv_df.iterrows():
+                        for position, (_, row) in enumerate(csv_df.iterrows(), start=1):
+                            current_row = position + 1
                             if entity == "📦 Productos / Inventario":
+                                nombre = require_csv_text(row["producto"], "producto")
+                                costo = convert_csv_value(row["costo"], float) or 0.0
+                                precio_divisa = convert_csv_value(row["precio_divisa"], float) or 0.0
+                                precio_bcv = convert_csv_value(row["precio_bcv"], float) or 0.0
+                                stock = convert_csv_value(row["stock"], int) or 0
+                                if min(costo, precio_divisa, precio_bcv, stock) < 0:
+                                    raise ValueError("Los costos, precios y existencias no pueden ser negativos.")
                                 producto = Producto(
-                                    nombre=str(row["producto"]).strip(),
-                                    costo=convert_csv_value(row["costo"], float) or 0.0,
-                                    precio_divisa=convert_csv_value(row["precio_divisa"], float) or 0.0,
-                                    precio_bcv=convert_csv_value(row["precio_bcv"], float) or 0.0,
-                                    stock=convert_csv_value(row["stock"], int) or 0,
+                                    nombre=nombre,
+                                    costo=costo,
+                                    precio_divisa=precio_divisa,
+                                    precio_bcv=precio_bcv,
+                                    stock=stock,
                                 )
                                 session.add(producto)
                             elif entity == "🛍️ Ventas Históricas":
-                                fecha = pd.to_datetime(row["fecha"], errors="coerce")
+                                precio_venta = convert_csv_value(row["precio_venta"], float) or 0.0
+                                costo = convert_csv_value(row["costo"], float) or 0.0
+                                deuda = convert_csv_value(row["deuda"], float) or 0.0
+                                cantidad = convert_csv_value(row.get("cantidad", 1), int) or 1
+                                if min(precio_venta, costo, deuda) < 0 or cantidad <= 0:
+                                    raise ValueError("Los importes no pueden ser negativos y la cantidad debe ser positiva.")
+                                if deuda > precio_venta:
+                                    raise ValueError("La deuda no puede superar el precio de venta.")
                                 venta = Venta(
-                                    fecha=fecha.date() if not pd.isna(fecha) else date.today(),
-                                    cliente=str(row["cliente"]).strip(),
-                                    vendedor=str(row["vendedor"]).strip(),
-                                    producto=str(row["producto"]).strip(),
-                                    cantidad=convert_csv_value(row.get("cantidad", 1), int) or 1,
-                                    precio_venta=convert_csv_value(row["precio_venta"], float) or 0.0,
-                                    costo=convert_csv_value(row["costo"], float) or 0.0,
+                                    fecha=parse_csv_date(row["fecha"]),
+                                    cliente=require_csv_text(row["cliente"], "cliente"),
+                                    vendedor=require_csv_text(row["vendedor"], "vendedor"),
+                                    producto=require_csv_text(row["producto"], "producto"),
+                                    cantidad=cantidad,
+                                    precio_venta=precio_venta,
+                                    costo=costo,
                                     ganancia=convert_csv_value(row["ganancia"], float) or 0.0,
-                                    moneda=str(row["moneda"]).strip(),
-                                    deuda=convert_csv_value(row["deuda"], float) or 0.0,
-                                    estatus=str(row["estatus"]).strip(),
-                                    total=convert_csv_value(row["precio_venta"], float) or 0.0,
+                                    moneda=require_csv_text(row["moneda"], "moneda"),
+                                    deuda=deuda,
+                                    estatus=require_csv_text(row["estatus"], "estatus"),
+                                    total=precio_venta,
                                 )
                                 session.add(venta)
                             else:
-                                fecha = pd.to_datetime(row["fecha"], errors="coerce")
+                                venta_id = convert_csv_value(row["venta_id"], int) or 0
+                                monto_bs = convert_csv_value(row["monto_bs"], float) or 0.0
+                                monto_usd = convert_csv_value(row["monto_usd"], float) or 0.0
+                                tasa_bcv = convert_csv_value(row["tasa_bcv"], float) or 0.0
+                                nro_cuota = convert_csv_value(row["nro_cuota"], int) or 1
+                                if venta_id <= 0 or min(monto_bs, monto_usd) < 0 or monto_usd <= 0 or tasa_bcv <= 0:
+                                    raise ValueError("Venta ID, monto USD y tasa BCV deben ser positivos; los montos no pueden ser negativos.")
+                                if session.get(Venta, venta_id) is None:
+                                    raise ValueError(f"No existe una venta con ID {venta_id}.")
                                 pago = Pago(
-                                    venta_id=convert_csv_value(row["venta_id"], int) or 0,
-                                    fecha=fecha.date() if not pd.isna(fecha) else date.today(),
-                                    cliente=str(row["cliente"]).strip(),
-                                    producto=str(row["producto"]).strip(),
-                                    monto_bs=convert_csv_value(row["monto_bs"], float) or 0.0,
-                                    monto_usd=convert_csv_value(row["monto_usd"], float) or 0.0,
-                                    referencia=str(row["referencia"]).strip(),
-                                    tasa_bcv=convert_csv_value(row["tasa_bcv"], float) or 0.0,
-                                    nro_cuota=convert_csv_value(row["nro_cuota"], int) or 1,
+                                    venta_id=venta_id,
+                                    fecha=parse_csv_date(row["fecha"]),
+                                    cliente=require_csv_text(row["cliente"], "cliente"),
+                                    producto=require_csv_text(row["producto"], "producto"),
+                                    monto_bs=monto_bs,
+                                    monto_usd=monto_usd,
+                                    referencia=require_csv_text(row["referencia"], "referencia"),
+                                    tasa_bcv=tasa_bcv,
+                                    nro_cuota=nro_cuota,
                                 )
                                 session.add(pago)
 
                             inserted += 1
                             if inserted % 25 == 0:
                                 session.flush()
-                            progress.progress(min(int(((idx + 1) / total_rows) * 100), 100))
+                            progress.progress(min(int((position / total_rows) * 100), 100))
 
                         session.commit()
                         st.success(f"✅ ¡Se cargaron {inserted} registros exitosamente en NeonDB!")
                         st.rerun()
                     except Exception as exc:
                         session.rollback()
-                        st.error(f"Error al insertar datos: {exc}")
+                        st.error(f"Error al insertar datos en la fila {current_row}: {exc}")
                     finally:
                         session.close()
         except Exception as exc:
             st.error(f"No se pudo leer el archivo CSV: {exc}")
 else:
     productos_tab, ventas_tab, cuotas_tab, finanzas_tab, dashboard_tab = st.tabs(["📦 Productos & Stock", "🛍️ Registrar Venta", "💰 Registro de Cuotas (Hoja 6)", "📈 Finanzas & Comisiones", "📊 Dashboard"])
+
+if selected_section != "Sistema Marfil":
+    st.stop()
 
 with productos_tab:
     catalogo_tab, nuevo_producto_tab = st.tabs(["Catálogo e Inventario", "Agregar Nuevo Perfume"])
@@ -712,7 +766,7 @@ with productos_tab:
                 editor_df = st.data_editor(
                     df[["id", "nombre", "costo", "precio_divisa", "precio_bcv", "stock"]],
                     disabled=["id", "nombre"],
-                    use_container_width=True,
+                    width="stretch",
                     key="inventory_editor",
                 )
 
@@ -843,7 +897,7 @@ with ventas_tab:
     if historial is None or historial.empty:
         st.info("Aún no hay ventas registradas.")
     else:
-        st.dataframe(historial, use_container_width=True)
+        st.dataframe(historial, width="stretch")
 
 with cuotas_tab:
     st.subheader("Registro de Cuotas y Abonos")
@@ -931,7 +985,7 @@ with cuotas_tab:
     if payment_summary is None or payment_summary.empty:
         st.info("Aún no hay pagos registrados.")
     else:
-        st.dataframe(payment_summary, use_container_width=True)
+        st.dataframe(payment_summary, width="stretch")
 
 with finanzas_tab:
     st.subheader("📈 Finanzas & Comisiones")
@@ -972,7 +1026,7 @@ with finanzas_tab:
         if commission_df.empty:
             st.info("Aún no hay datos de ventas para calcular comisiones.")
         else:
-            st.dataframe(commission_df, use_container_width=True)
+            st.dataframe(commission_df, width="stretch")
 
         st.divider()
         st.subheader("Ventas Totales y Deuda")
@@ -981,7 +1035,7 @@ with finanzas_tab:
             if ventas_df.empty:
                 st.info("No hay ventas registradas aún.")
             else:
-                st.dataframe(ventas_df, use_container_width=True)
+                st.dataframe(ventas_df, width="stretch")
         except Exception as exc:
             st.warning(str(exc))
     except Exception as exc:
@@ -1017,7 +1071,7 @@ with dashboard_tab:
     else:
         st.dataframe(
             cuentas_pendientes[["fecha", "cliente", "vendedor", "producto", "precio_venta", "deuda", "estatus"]],
-            use_container_width=True,
+            width="stretch",
         )
 
         chart_pending = cuentas_pendientes[["cliente", "deuda"]].copy()
@@ -1036,7 +1090,7 @@ with dashboard_tab:
     if stock_critico is None or stock_critico.empty:
         st.info("No hay perfumes con stock crítico en este momento.")
     else:
-        st.dataframe(stock_critico, use_container_width=True)
+        st.dataframe(stock_critico, width="stretch")
 
         chart_stock = stock_critico[["nombre", "stock"]].copy()
         chart_stock = chart_stock.sort_values("stock", ascending=True)
@@ -1047,8 +1101,8 @@ with dashboard_tab:
     st.subheader("⚡ Accesos rápidos")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Registrar una venta nueva", use_container_width=True):
+        if st.button("Registrar una venta nueva", width="stretch"):
             st.info("Dirígete a la pestaña 🛍️ Registrar Venta para crear una venta nueva.")
     with col2:
-        if st.button("Cargar un pago rápido", use_container_width=True):
+        if st.button("Cargar un pago rápido", width="stretch"):
             st.info("Dirígete a la pestaña 💰 Registro de Cuotas para registrar un abono o pago.")

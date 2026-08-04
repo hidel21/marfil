@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from functools import lru_cache
+from math import isfinite
 
 import pandas as pd
 from sqlalchemy import (
@@ -16,6 +18,7 @@ from sqlalchemy import (
     func,
     select,
     text,
+    update,
 )
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
@@ -34,7 +37,7 @@ class Producto(Base):
     precio_bcv = Column(Numeric(10, 2), nullable=False, default=0)
     stock = Column(Integer, nullable=False, default=0)
     precio_unitario = Column(Numeric(10, 2), nullable=False, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class Venta(Base):
@@ -122,13 +125,24 @@ def get_database_url() -> str:
     return ""
 
 
+@lru_cache(maxsize=4)
+def _create_engine(database_url: str):
+    return create_engine(database_url, pool_pre_ping=True)
+
+
 def get_engine():
     database_url = get_database_url()
     if not database_url:
         raise RuntimeError(
             "No hay una URL de conexión válida para PostgreSQL. Edita .streamlit/secrets.toml o define DATABASE_URL."
         )
-    return create_engine(database_url, pool_pre_ping=True)
+    return _create_engine(database_url)
+
+
+def _validate_finite_numbers(**values: float | int) -> None:
+    invalid = [name for name, value in values.items() if not isfinite(float(value))]
+    if invalid:
+        raise ValueError(f"Valores numéricos inválidos: {', '.join(invalid)}.")
 
 
 def ensure_schema() -> None:
@@ -159,20 +173,30 @@ def ensure_schema() -> None:
             connection.execute(text("ALTER TABLE productos ADD COLUMN precio_divisa NUMERIC(10, 2) DEFAULT 0"))
         if "precio_bcv" not in producto_columns:
             connection.execute(text("ALTER TABLE productos ADD COLUMN precio_bcv NUMERIC(10, 2) DEFAULT 0"))
+        for column_name, definition in {
+            "categoria": "VARCHAR(100)",
+            "precio_unitario": "NUMERIC(10, 2) DEFAULT 0",
+            "created_at": "TIMESTAMP WITH TIME ZONE",
+        }.items():
+            if column_name not in producto_columns:
+                connection.execute(text(f"ALTER TABLE productos ADD COLUMN {column_name} {definition}"))
 
         for column_name, definition in {
+            "fecha": "DATE",
+            "cliente": "VARCHAR(200)",
             "vendedor": "VARCHAR(50)",
             "producto": "VARCHAR(200)",
-            "cantidad": "INTEGER",
-            "precio_venta": "NUMERIC(10, 2)",
-            "costo": "NUMERIC(10, 2)",
-            "ganancia": "NUMERIC(10, 2)",
-            "moneda": "VARCHAR(10)",
-            "deuda": "NUMERIC(10, 2)",
-            "estatus": "VARCHAR(20)",
+            "cantidad": "INTEGER DEFAULT 1",
+            "precio_venta": "NUMERIC(10, 2) DEFAULT 0",
+            "costo": "NUMERIC(10, 2) DEFAULT 0",
+            "ganancia": "NUMERIC(10, 2) DEFAULT 0",
+            "moneda": "VARCHAR(10) DEFAULT 'BCV'",
+            "deuda": "NUMERIC(10, 2) DEFAULT 0",
+            "estatus": "VARCHAR(20) DEFAULT 'PENDIENTE'",
+            "total": "NUMERIC(10, 2) DEFAULT 0",
         }.items():
             if column_name not in venta_columns:
-                connection.execute(text(f"ALTER TABLE ventas ADD COLUMN {column_name} {definition} DEFAULT NULL"))
+                connection.execute(text(f"ALTER TABLE ventas ADD COLUMN {column_name} {definition}"))
 
         for column_name, definition in {
             "venta_id": "INTEGER",
@@ -249,6 +273,15 @@ def save_inventory_changes(edited_df: pd.DataFrame) -> int:
             if producto is None:
                 continue
 
+            _validate_finite_numbers(
+                costo=record["costo"],
+                precio_divisa=record["precio_divisa"],
+                precio_bcv=record["precio_bcv"],
+                stock=record["stock"],
+            )
+            if any(float(record[column]) < 0 for column in ["costo", "precio_divisa", "precio_bcv", "stock"]):
+                raise ValueError("Los costos, precios y existencias no pueden ser negativos.")
+
             changed = False
             for column in ["costo", "precio_divisa", "precio_bcv", "stock"]:
                 new_value = record[column]
@@ -272,6 +305,13 @@ def save_inventory_changes(edited_df: pd.DataFrame) -> int:
 
 
 def create_product(nombre: str, costo: float, precio_divisa: float, precio_bcv: float, stock: int) -> Producto:
+    nombre = nombre.strip()
+    if not nombre:
+        raise ValueError("El nombre del producto es obligatorio.")
+    _validate_finite_numbers(costo=costo, precio_divisa=precio_divisa, precio_bcv=precio_bcv, stock=stock)
+    if min(costo, precio_divisa, precio_bcv, stock) < 0:
+        raise ValueError("Los costos, precios y existencias no pueden ser negativos.")
+
     session = get_session()
     try:
         producto = Producto(
@@ -338,24 +378,47 @@ def register_sale(
     deuda: float,
     estatus: str,
 ) -> Venta:
+    cliente = cliente.strip()
+    vendedor = vendedor.strip()
+    producto_nombre = producto_nombre.strip()
+    if not cliente or not producto_nombre:
+        raise ValueError("El cliente y el producto son obligatorios.")
+    _validate_finite_numbers(
+        cantidad=cantidad,
+        precio_venta=precio_venta,
+        costo_total=costo_total,
+        ganancia=ganancia,
+        deuda=deuda,
+    )
+    if cantidad <= 0:
+        raise ValueError("La cantidad debe ser mayor a cero.")
+    if precio_venta < 0 or costo_total < 0 or deuda < 0:
+        raise ValueError("Los importes de la venta no pueden ser negativos.")
+    if deuda > precio_venta:
+        raise ValueError("La deuda no puede superar el precio de venta.")
+
     session = get_session()
     try:
-        producto = session.get(Producto, producto_id)
-        if producto is None:
-            raise ValueError("Producto no encontrado.")
-        if producto.stock < cantidad:
-            raise ValueError("No hay suficiente stock para completar la venta.")
-
         with session.begin():
-            session.execute(
-                text("UPDATE productos SET stock = stock - :cantidad WHERE id = :producto_id"),
-                {"cantidad": cantidad, "producto_id": producto_id},
+            stock_update = session.execute(
+                update(Producto)
+                .where(Producto.id == producto_id, Producto.stock >= cantidad)
+                .values(stock=Producto.stock - cantidad)
             )
+            if stock_update.rowcount != 1:
+                producto_existe = session.execute(
+                    select(Producto.id).where(Producto.id == producto_id)
+                ).scalar_one_or_none()
+                if producto_existe is None:
+                    raise ValueError("Producto no encontrado.")
+                raise ValueError("No hay suficiente stock para completar la venta.")
+
             venta = Venta(
                 fecha=fecha,
                 cliente=cliente,
                 vendedor=vendedor,
                 producto=producto_nombre,
+                cantidad=cantidad,
                 precio_venta=precio_venta,
                 costo=costo_total,
                 ganancia=ganancia,
@@ -441,6 +504,7 @@ def load_all_payments_dataframe() -> pd.DataFrame:
             session.execute(
                 select(
                     Pago,
+                    Venta.vendedor.label("venta_vendedor"),
                     Venta.deuda.label("venta_deuda"),
                     Venta.estatus.label("venta_estatus"),
                 )
@@ -455,7 +519,7 @@ def load_all_payments_dataframe() -> pd.DataFrame:
                     "id": pago.id,
                     "fecha": pago.fecha,
                     "cliente": pago.cliente,
-                    "vendedor": pago.venta.vendedor if pago.venta is not None else "",
+                    "vendedor": venta_vendedor or "",
                     "producto": pago.producto,
                     "monto_bs": float(pago.monto_bs or 0),
                     "monto_usd": float(pago.monto_usd or 0),
@@ -465,7 +529,7 @@ def load_all_payments_dataframe() -> pd.DataFrame:
                     "saldo_usd": float(venta_deuda or 0),
                     "estatus": venta_estatus,
                 }
-                for pago, venta_deuda, venta_estatus in resultados
+                for pago, venta_vendedor, venta_deuda, venta_estatus in resultados
             ]
         )
     except Exception as exc:
@@ -581,18 +645,36 @@ def register_payment(
     tasa_bcv: float,
     nro_cuota: int,
 ) -> tuple[float, str]:
+    _validate_finite_numbers(monto_bs=monto_bs, monto_usd=monto_usd, tasa_bcv=tasa_bcv, nro_cuota=nro_cuota)
+    if monto_bs <= 0 or monto_usd <= 0 or tasa_bcv <= 0:
+        raise ValueError("El monto y la tasa del abono deben ser mayores a cero.")
+    if venta_id <= 0 or nro_cuota <= 0:
+        raise ValueError("La venta y el número de cuota deben ser positivos.")
+    if not referencia.strip():
+        raise ValueError("La referencia bancaria es obligatoria.")
+
     session = get_session()
     try:
-        venta = session.get(Venta, venta_id)
-        if venta is None:
-            raise ValueError("Venta no encontrada.")
-
         with session.begin():
+            venta = session.execute(
+                select(Venta).where(Venta.id == venta_id).with_for_update()
+            ).scalar_one_or_none()
+            if venta is None:
+                raise ValueError("Venta no encontrada.")
+
+            deuda_actual = float(venta.deuda or 0)
+            if deuda_actual <= 0:
+                raise ValueError("La venta ya está pagada.")
+            if monto_usd > deuda_actual + 0.005:
+                raise ValueError(
+                    f"El abono (${monto_usd:,.2f}) supera la deuda pendiente (${deuda_actual:,.2f})."
+                )
+
             pago = Pago(
                 venta_id=venta_id,
                 fecha=fecha,
-                cliente=cliente,
-                producto=producto,
+                cliente=venta.cliente,
+                producto=venta.producto,
                 monto_bs=monto_bs,
                 monto_usd=monto_usd,
                 referencia=referencia,
@@ -601,7 +683,9 @@ def register_payment(
             )
             session.add(pago)
 
-            nueva_deuda = max(0.0, float(venta.deuda or 0) - monto_usd)
+            nueva_deuda = max(0.0, deuda_actual - monto_usd)
+            if nueva_deuda < 0.005:
+                nueva_deuda = 0.0
             venta.deuda = nueva_deuda
             venta.estatus = "YA PAGO" if nueva_deuda == 0 else "PENDIENTE"
             session.flush()
@@ -755,7 +839,9 @@ def load_payment_metrics() -> tuple[float, float, int]:
             session.execute(select(text("COALESCE(SUM(monto_usd), 0)")).select_from(Pago)).scalar_one()
         )
         completed_clients = int(
-            session.execute(select(Venta).where(Venta.estatus == "YA PAGO")).scalars().count()
+            session.execute(
+                select(func.count(func.distinct(Venta.cliente))).where(Venta.estatus == "YA PAGO")
+            ).scalar_one()
         )
         return total_bs, total_usd, completed_clients
     except Exception as exc:
@@ -837,6 +923,17 @@ def load_commission_dataframe(commission_rate: float = 0.1) -> pd.DataFrame:
                 }
             )
 
+        if not rows:
+            return pd.DataFrame(
+                columns=[
+                    "vendedor",
+                    "ventas",
+                    "ingresos_usd",
+                    "costo_usd",
+                    "ganancia_usd",
+                    "comision_usd",
+                ]
+            )
         return pd.DataFrame(rows).sort_values("comision_usd", ascending=False)
     except Exception as exc:
         raise RuntimeError(f"No se pudo cargar el resumen de comisiones: {exc}") from exc

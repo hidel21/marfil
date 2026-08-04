@@ -20,13 +20,14 @@ def _parse_positive_float(value):
         return None
 
 
-@st.cache_data(ttl=1800)
-def obtener_todas_las_tasas() -> Tuple[float, float, float, float]:
+@st.cache_data(ttl=1800, max_entries=1)
+def obtener_tasas_con_estado() -> tuple[Tuple[float, float, float, float], tuple[str, ...]]:
     """Consultar BCV USD, BCV EUR, Binance USDT y USDT.com.ve con fallback local."""
     tasa_bcv_usd = DEFAULT_BCV_USD_RATE
     tasa_bcv_eur = DEFAULT_BCV_EUR_RATE
     tasa_binance = DEFAULT_BINANCE_USDT_RATE
     tasa_usdt_com_ve = DEFAULT_USDT_COM_VE_RATE
+    tasas_de_respaldo = {"Dólar BCV", "Euro BCV", "Binance USDT", "USDT.com.ve"}
 
     try:
         response = requests.get(USDT_COM_VE_URL, timeout=5)
@@ -40,10 +41,13 @@ def obtener_todas_las_tasas() -> Tuple[float, float, float, float]:
 
         if bcv_rate is not None:
             tasa_bcv_usd = bcv_rate
+            tasas_de_respaldo.discard("Dólar BCV")
         if binance_buy is not None:
             tasa_binance = binance_buy
+            tasas_de_respaldo.discard("Binance USDT")
         if best_buy is not None:
             tasa_usdt_com_ve = best_buy
+            tasas_de_respaldo.discard("USDT.com.ve")
     except Exception:
         tasa_bcv_usd = DEFAULT_BCV_USD_RATE
         tasa_binance = DEFAULT_BINANCE_USDT_RATE
@@ -59,15 +63,24 @@ def obtener_todas_las_tasas() -> Tuple[float, float, float, float]:
             price = _parse_positive_float(eur_data.get("price"))
             if price is not None:
                 tasa_bcv_eur = price
+                tasas_de_respaldo.discard("Euro BCV")
     except Exception:
         tasa_bcv_eur = DEFAULT_BCV_EUR_RATE
 
     return (
-        round(tasa_bcv_usd, 2),
-        round(tasa_bcv_eur, 2),
-        round(tasa_binance, 2),
-        round(tasa_usdt_com_ve, 2),
+        (
+            round(tasa_bcv_usd, 2),
+            round(tasa_bcv_eur, 2),
+            round(tasa_binance, 2),
+            round(tasa_usdt_com_ve, 2),
+        ),
+        tuple(sorted(tasas_de_respaldo)),
     )
+
+
+def obtener_todas_las_tasas() -> Tuple[float, float, float, float]:
+    tasas, _ = obtener_tasas_con_estado()
+    return tasas
 
 
 def format_currency(value: float, prefix: str = "Bs. ", decimals: int = 2) -> str:
