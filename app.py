@@ -10,24 +10,46 @@ from database import (
     Producto,
     Venta,
     Pago,
+    create_gasto,
     create_product,
+    create_proveedor,
     init_db,
     load_available_products_dataframe,
+    load_compras_dataframe,
     load_financial_metrics,
+    load_excel_import_summary_dataframe,
+    load_excel_sheet_dataframe,
+    load_gastos_dataframe,
+    load_gastos_total,
     load_inventory_dataframe,
     load_low_stock_products_dataframe,
+    load_out_of_stock_demand_dataframe,
+    load_payables_total,
     load_payment_metrics,
     load_payment_summary_dataframe,
     load_pending_accounts_dataframe,
     load_pending_collections_dataframe,
+    load_pending_payables_dataframe,
     load_pending_sales_dataframe,
+    load_product_margin_dataframe,
+    load_proveedores_dataframe,
     load_recent_sales_dataframe,
     load_all_sales_dataframe,
     load_all_payments_dataframe,
     load_commission_dataframe,
+    load_socios_dataframe,
+    load_socios_investment_dataframe,
+    load_top_clients_dataframe,
+    load_top_products_dataframe,
+    load_weekly_profitability_dataframe,
+    register_payable_payment,
     register_payment,
+    register_purchase,
     register_sale,
     save_inventory_changes,
+    save_proveedor_changes,
+    save_socio_changes,
+    seed_default_socios,
     seed_sample_data,
     test_connection,
 )
@@ -384,6 +406,7 @@ def render_sidebar_navigation() -> str:
             "Sistema Marfil",
             "📲 Cobranza & WhatsApp",
             "📄 Recibos & Reportes",
+            "📚 Datos migrados de Excel",
             "📥 Carga Masiva (CSV)",
         ],
         index=0,
@@ -560,6 +583,29 @@ elif selected_section == "📄 Recibos & Reportes":
                 )
     except Exception as exc:
         st.error(f"No se pudo cargar el módulo de recibos y reportes: {exc}")
+elif selected_section == "📚 Datos migrados de Excel":
+    st.subheader("Datos migrados de Excel")
+    st.caption("Consulta las pestañas originales preservadas durante cada migración.")
+    try:
+        import_summary = load_excel_import_summary_dataframe()
+        if import_summary.empty:
+            st.info("Aún no se ha migrado ningún libro de Excel.")
+        else:
+            latest_import_id = int(import_summary["importacion_id"].max())
+            latest = import_summary[import_summary["importacion_id"] == latest_import_id]
+            with st.container(horizontal=True):
+                st.metric("Pestañas preservadas", int(latest["pestaña"].nunique()), border=True)
+                st.metric("Filas con datos", int(latest["filas"].sum()), border=True)
+                st.metric("Archivo", str(latest["archivo"].iloc[0]), border=True)
+
+            selected_sheet = st.selectbox(
+                "Pestaña del libro",
+                latest["pestaña"].tolist(),
+            )
+            sheet_df = load_excel_sheet_dataframe(latest_import_id, selected_sheet)
+            st.dataframe(sheet_df, hide_index=True, width="stretch")
+    except Exception as exc:
+        st.error(f"No se pudieron cargar los datos migrados: {exc}")
 elif selected_section == "📥 Carga Masiva (CSV)":
     st.subheader("📥 Carga Masiva (CSV)")
     st.markdown(
@@ -736,7 +782,25 @@ elif selected_section == "📥 Carga Masiva (CSV)":
         except Exception as exc:
             st.error(f"No se pudo leer el archivo CSV: {exc}")
 else:
-    productos_tab, ventas_tab, cuotas_tab, finanzas_tab, dashboard_tab = st.tabs(["📦 Productos & Stock", "🛍️ Registrar Venta", "💰 Registro de Cuotas (Hoja 6)", "📈 Finanzas & Comisiones", "📊 Dashboard"])
+    (
+        productos_tab,
+        ventas_tab,
+        cuotas_tab,
+        compras_tab,
+        socios_tab,
+        finanzas_tab,
+        dashboard_tab,
+    ) = st.tabs(
+        [
+            "📦 Productos & Stock",
+            "🛍️ Registrar Venta",
+            "💰 Registro de Cuotas (Hoja 6)",
+            "🏭 Compras & Proveedores",
+            "🤝 Socios & Inversión",
+            "📈 Finanzas & Comisiones",
+            "📊 Dashboard",
+        ]
+    )
 
 if selected_section != "Sistema Marfil":
     st.stop()
@@ -764,8 +828,28 @@ with productos_tab:
                     render_metric_card("Valor del Inventario a Costo ($)", f"{valor_inventario:,.2f}", "💵", "#ea580c")
 
                 editor_df = st.data_editor(
-                    df[["id", "nombre", "costo", "precio_divisa", "precio_bcv", "stock"]],
-                    disabled=["id", "nombre"],
+                    df[
+                        [
+                            "id",
+                            "nombre",
+                            "categoria",
+                            "costo",
+                            "precio_divisa",
+                            "precio_bcv",
+                            "precio_original",
+                            "precio_team",
+                            "precio_revendedor",
+                            "stock",
+                        ]
+                    ],
+                    disabled=[
+                        "id",
+                        "nombre",
+                        "categoria",
+                        "precio_original",
+                        "precio_team",
+                        "precio_revendedor",
+                    ],
                     width="stretch",
                     key="inventory_editor",
                 )
@@ -987,6 +1071,308 @@ with cuotas_tab:
     else:
         st.dataframe(payment_summary, width="stretch")
 
+with compras_tab:
+    st.subheader("🏭 Compras & Proveedores")
+
+    proveedores_tab, registrar_compra_tab, cuentas_pagar_tab = st.tabs(
+        ["Proveedores", "Registrar Compra", "Cuentas por Pagar"]
+    )
+
+    with proveedores_tab:
+        st.markdown("Base de datos completa de proveedores.")
+        with st.form("form_nuevo_proveedor", clear_on_submit=True):
+            nombre_prov = st.text_input("Nombre del proveedor")
+            contacto_prov = st.text_input("Persona de contacto")
+            telefono_prov = st.text_input("Teléfono")
+            email_prov = st.text_input("Email")
+            notas_prov = st.text_area("Notas")
+            submitted_prov = st.form_submit_button("Agregar Proveedor")
+            if submitted_prov:
+                if not nombre_prov.strip():
+                    st.error("El nombre del proveedor es obligatorio.")
+                else:
+                    try:
+                        create_proveedor(
+                            nombre=nombre_prov,
+                            contacto=contacto_prov,
+                            telefono=telefono_prov,
+                            email=email_prov,
+                            notas=notas_prov,
+                        )
+                        st.success("Proveedor agregado correctamente.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"No se pudo agregar el proveedor: {exc}")
+
+        st.divider()
+        try:
+            proveedores_df = load_proveedores_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            proveedores_df = None
+
+        if proveedores_df is None or proveedores_df.empty:
+            st.info("Aún no hay proveedores registrados.")
+        else:
+            proveedores_editor_df = st.data_editor(
+                proveedores_df,
+                disabled=["id", "nombre"],
+                column_order=["nombre", "contacto", "telefono", "email", "notas"],
+                column_config={
+                    "nombre": st.column_config.TextColumn("Proveedor"),
+                    "contacto": st.column_config.TextColumn("Contacto"),
+                    "telefono": st.column_config.TextColumn("Teléfono"),
+                    "email": st.column_config.TextColumn("Email"),
+                    "notas": st.column_config.TextColumn("Notas"),
+                },
+                width="stretch",
+                key="proveedores_editor",
+            )
+            if st.button("Guardar Cambios de Proveedores"):
+                try:
+                    updated_rows = save_proveedor_changes(proveedores_editor_df)
+                    if updated_rows:
+                        st.success(f"Se actualizaron {updated_rows} proveedor(es) correctamente.")
+                        st.rerun()
+                    else:
+                        st.info("No se detectaron cambios para guardar.")
+                except Exception as exc:
+                    st.error(f"No se pudieron guardar los cambios: {exc}")
+
+    with registrar_compra_tab:
+        st.markdown(
+            "Registra una compra vinculada al catálogo de proveedores; el stock e inventario se actualizan automáticamente."
+        )
+        try:
+            proveedores_df = load_proveedores_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            proveedores_df = None
+
+        try:
+            productos_df = load_inventory_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            productos_df = None
+
+        if proveedores_df is None or proveedores_df.empty:
+            st.warning("Registra al menos un proveedor antes de crear una compra.")
+        elif productos_df is None or productos_df.empty:
+            st.warning("Registra al menos un producto en el inventario antes de crear una compra.")
+        else:
+            proveedor_options = proveedores_df["nombre"].tolist()
+            proveedor_map = dict(zip(proveedores_df["nombre"], proveedores_df.to_dict(orient="records")))
+            producto_options = productos_df["nombre"].tolist()
+            producto_map = dict(zip(productos_df["nombre"], productos_df.to_dict(orient="records")))
+
+            with st.form("form_registro_compra", clear_on_submit=True):
+                fecha_compra = st.date_input("Fecha", value=date.today())
+                proveedor_nombre_sel = st.selectbox("Proveedor", options=proveedor_options)
+                producto_nombre_sel = st.selectbox("Producto", options=producto_options)
+                cantidad_compra = st.number_input("Cantidad", min_value=1, step=1, value=1)
+                costo_unitario_compra = st.number_input(
+                    "Costo Unitario ($)", min_value=0.0, step=0.5, value=0.0
+                )
+                monto_total_compra = float(costo_unitario_compra) * int(cantidad_compra)
+                st.markdown(f"**Monto Total de la Compra: ${monto_total_compra:,.2f}**")
+                monto_pagado_compra = st.number_input(
+                    "Monto Pagado Ahora ($)",
+                    min_value=0.0,
+                    step=0.5,
+                    value=float(monto_total_compra),
+                )
+                referencia_compra = st.text_input("Referencia / Nro. Factura")
+
+                submitted_compra = st.form_submit_button("Registrar Compra")
+                if submitted_compra:
+                    try:
+                        proveedor_info = proveedor_map[proveedor_nombre_sel]
+                        producto_info = producto_map[producto_nombre_sel]
+                        register_purchase(
+                            fecha=fecha_compra,
+                            proveedor_id=int(proveedor_info["id"]),
+                            proveedor_nombre=str(proveedor_info["nombre"]),
+                            producto_id=int(producto_info["id"]),
+                            producto_nombre=str(producto_info["nombre"]),
+                            cantidad=int(cantidad_compra),
+                            costo_unitario=float(costo_unitario_compra),
+                            monto_pagado=float(monto_pagado_compra),
+                            referencia=referencia_compra,
+                        )
+                        st.success("✅ Compra registrada y stock actualizado con éxito.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"No se pudo registrar la compra: {exc}")
+
+        st.divider()
+        st.subheader("Historial de Compras")
+        try:
+            compras_df = load_compras_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            compras_df = None
+
+        if compras_df is None or compras_df.empty:
+            st.info("Aún no hay compras registradas.")
+        else:
+            st.dataframe(
+                compras_df,
+                width="stretch",
+                hide_index=True,
+                column_order=[
+                    "id",
+                    "fecha",
+                    "proveedor",
+                    "producto",
+                    "cantidad",
+                    "costo_unitario",
+                    "monto_total",
+                    "monto_pagado",
+                    "saldo",
+                    "estatus",
+                    "referencia",
+                ],
+                column_config={
+                    "id": st.column_config.NumberColumn("N° Compra"),
+                    "fecha": st.column_config.DateColumn("Fecha"),
+                    "proveedor": st.column_config.TextColumn("Proveedor"),
+                    "producto": st.column_config.TextColumn("Producto"),
+                    "cantidad": st.column_config.NumberColumn("Cantidad"),
+                    "costo_unitario": st.column_config.NumberColumn("Costo Unitario ($)", format="$%.2f"),
+                    "monto_total": st.column_config.NumberColumn("Monto Total ($)", format="$%.2f"),
+                    "monto_pagado": st.column_config.NumberColumn("Monto Pagado ($)", format="$%.2f"),
+                    "saldo": st.column_config.NumberColumn("Saldo Pendiente ($)", format="$%.2f"),
+                    "estatus": st.column_config.TextColumn("Estatus"),
+                    "referencia": st.column_config.TextColumn("Referencia"),
+                },
+            )
+
+    with cuentas_pagar_tab:
+        st.markdown("Control global de cuentas por pagar a proveedores.")
+        try:
+            payables_df = load_pending_payables_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            payables_df = None
+
+        if payables_df is None or payables_df.empty:
+            st.success("🎉 No hay cuentas por pagar pendientes.")
+        else:
+            st.dataframe(
+                payables_df,
+                width="stretch",
+                hide_index=True,
+                column_order=["id", "fecha", "proveedor", "producto", "monto_total", "saldo", "estatus"],
+                column_config={
+                    "id": st.column_config.NumberColumn("N° Compra"),
+                    "fecha": st.column_config.DateColumn("Fecha"),
+                    "proveedor": st.column_config.TextColumn("Proveedor"),
+                    "producto": st.column_config.TextColumn("Producto"),
+                    "monto_total": st.column_config.NumberColumn("Monto Total ($)", format="$%.2f"),
+                    "saldo": st.column_config.NumberColumn("Saldo Pendiente ($)", format="$%.2f"),
+                    "estatus": st.column_config.TextColumn("Estatus"),
+                },
+            )
+
+            payables_df["label"] = (
+                "Compra #"
+                + payables_df["id"].astype(str)
+                + " | "
+                + payables_df["proveedor"]
+                + " | "
+                + payables_df["producto"]
+                + " | Saldo: $"
+                + payables_df["saldo"].astype(str)
+            )
+            compra_options = payables_df["label"].tolist()
+            compra_map = dict(zip(payables_df["label"], payables_df.to_dict(orient="records")))
+
+            with st.form("form_abono_proveedor", clear_on_submit=True):
+                fecha_abono = st.date_input("Fecha del Abono", value=date.today())
+                compra_label = st.selectbox("Compra Pendiente", options=compra_options)
+                compra_info = compra_map[compra_label]
+                monto_abono = st.number_input("Monto a Abonar ($)", min_value=0.0, step=1.0)
+                referencia_abono = st.text_input("Referencia")
+
+                submitted_abono = st.form_submit_button("Registrar Abono a Proveedor")
+                if submitted_abono:
+                    try:
+                        nuevo_saldo, estatus = register_payable_payment(
+                            compra_id=int(compra_info["id"]),
+                            fecha=fecha_abono,
+                            monto=float(monto_abono),
+                            referencia=referencia_abono,
+                        )
+                        st.success(
+                            f"✅ Abono de ${monto_abono:,.2f} registrado a {compra_info['proveedor']}. Nuevo saldo: ${nuevo_saldo:,.2f}"
+                        )
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"No se pudo registrar el abono: {exc}")
+
+with socios_tab:
+    st.subheader("🤝 Socios & Inversión")
+    st.markdown(
+        "Indicadores de inversión individual por socio: capital aportado, % de participación y retorno (ROI) sobre la utilidad neta real."
+    )
+
+    try:
+        socios_df = load_socios_dataframe()
+    except Exception as exc:
+        st.warning(str(exc))
+        socios_df = None
+
+    if socios_df is None or socios_df.empty:
+        st.info("Aún no hay socios registrados. Usa 'Inicializar base de datos' en la barra lateral para cargarlos.")
+    else:
+        st.markdown("**Capital aportado por socio**")
+        socios_editor_df = st.data_editor(
+            socios_df,
+            disabled=["id", "nombre"],
+            column_order=["nombre", "capital_invertido"],
+            column_config={
+                "nombre": st.column_config.TextColumn("Socio"),
+                "capital_invertido": st.column_config.NumberColumn(
+                    "Capital Invertido ($)", format="$%.2f", min_value=0.0, step=1.0
+                ),
+            },
+            width="stretch",
+            key="socios_editor",
+        )
+        if st.button("Guardar Capital de Socios"):
+            try:
+                updated_rows = save_socio_changes(socios_editor_df)
+                if updated_rows:
+                    st.success(f"Se actualizó el capital de {updated_rows} socio(s) correctamente.")
+                    st.rerun()
+                else:
+                    st.info("No se detectaron cambios para guardar.")
+            except Exception as exc:
+                st.error(f"No se pudieron guardar los cambios: {exc}")
+
+        st.divider()
+        try:
+            inversion_df = load_socios_investment_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            inversion_df = None
+
+        if inversion_df is None or inversion_df.empty:
+            st.info("Registra el capital invertido de al menos un socio para ver los indicadores.")
+        else:
+            st.dataframe(
+                inversion_df,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "socio": st.column_config.TextColumn("Socio"),
+                    "capital_invertido": st.column_config.NumberColumn("Capital Invertido ($)", format="$%.2f"),
+                    "participacion_pct": st.column_config.NumberColumn("Participación (%)", format="%.1f%%"),
+                    "ganancia_atribuida": st.column_config.NumberColumn("Ganancia Atribuida ($)", format="$%.2f"),
+                    "roi_pct": st.column_config.NumberColumn("ROI (%)", format="%.1f%%"),
+                },
+            )
+
 with finanzas_tab:
     st.subheader("📈 Finanzas & Comisiones")
     try:
@@ -997,6 +1383,8 @@ with finanzas_tab:
             total_debt,
             total_collected_usd,
             total_collected_bs,
+            total_gastos,
+            utilidad_neta_real,
         ) = load_financial_metrics()
 
         margin = (total_profit / total_revenue * 100) if total_revenue else 0.0
@@ -1038,6 +1426,126 @@ with finanzas_tab:
                 st.dataframe(ventas_df, width="stretch")
         except Exception as exc:
             st.warning(str(exc))
+
+        st.divider()
+        st.subheader("📅 Rentabilidad Semanal")
+        st.markdown("Semanas con mayor ganancia neta generada por las ventas.")
+        try:
+            semanal_df = load_weekly_profitability_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            semanal_df = None
+
+        if semanal_df is None or semanal_df.empty:
+            st.info("Aún no hay ventas suficientes para calcular la rentabilidad semanal.")
+        else:
+            top_semana = semanal_df.iloc[0]
+            render_metric_card(
+                "Semana más rentable",
+                f"{top_semana['semana']} · ${top_semana['ganancia_total']:,.2f}",
+                "🏆",
+                "#16a34a",
+            )
+            st.dataframe(
+                semanal_df,
+                width="stretch",
+                hide_index=True,
+                column_order=["semana", "inicio_semana", "ganancia_total"],
+                column_config={
+                    "semana": st.column_config.TextColumn("Semana"),
+                    "inicio_semana": st.column_config.DateColumn("Inicio de Semana"),
+                    "ganancia_total": st.column_config.NumberColumn("Ganancia Total ($)", format="$%.2f"),
+                },
+            )
+            chart_semanal = semanal_df.sort_values("inicio_semana")
+            st.bar_chart(chart_semanal.set_index("semana")["ganancia_total"])
+
+        st.divider()
+        st.subheader("🧾 Margen de Ganancia por Producto")
+        st.markdown("Costo vs. Precio de Venta vs. Ganancia neta, agregado por producto.")
+        try:
+            margen_df = load_product_margin_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            margen_df = None
+
+        if margen_df is None or margen_df.empty:
+            st.info("Aún no hay ventas registradas para calcular márgenes por producto.")
+        else:
+            st.dataframe(
+                margen_df,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "producto": st.column_config.TextColumn("Producto"),
+                    "unidades_vendidas": st.column_config.NumberColumn("Unidades Vendidas"),
+                    "costo_total": st.column_config.NumberColumn("Costo Total ($)", format="$%.2f"),
+                    "ingresos_total": st.column_config.NumberColumn("Precio de Venta Total ($)", format="$%.2f"),
+                    "ganancia_total": st.column_config.NumberColumn("Ganancia Neta ($)", format="$%.2f"),
+                    "margen_pct": st.column_config.NumberColumn("Margen (%)", format="%.1f%%"),
+                },
+            )
+
+        st.divider()
+        st.subheader("💼 Control Financiero Global")
+        st.markdown("Cuentas por cobrar, cuentas por pagar, gastos generales y utilidad neta real del negocio.")
+        try:
+            total_por_pagar = load_payables_total()
+        except Exception as exc:
+            st.warning(str(exc))
+            total_por_pagar = 0.0
+
+        col7, col8, col9, col10 = st.columns(4)
+        with col7:
+            render_metric_card("Cuentas por Cobrar ($)", f"${total_debt:,.2f}", "⏳", "#dc2626")
+        with col8:
+            render_metric_card("Cuentas por Pagar ($)", f"${total_por_pagar:,.2f}", "🏭", "#ea580c")
+        with col9:
+            render_metric_card("Gastos Generales ($)", f"${total_gastos:,.2f}", "🧾", "#7c3aed")
+        with col10:
+            render_metric_card("Utilidad Neta Real ($)", f"${utilidad_neta_real:,.2f}", "✅", "#059669")
+
+        with st.expander("➕ Registrar Gasto General"):
+            with st.form("form_nuevo_gasto", clear_on_submit=True):
+                fecha_gasto = st.date_input("Fecha", value=date.today(), key="fecha_gasto")
+                categoria_gasto = st.text_input("Categoría", placeholder="Alquiler, servicios, transporte...")
+                descripcion_gasto = st.text_input("Descripción")
+                monto_gasto = st.number_input("Monto ($)", min_value=0.0, step=1.0)
+                submitted_gasto = st.form_submit_button("Registrar Gasto")
+                if submitted_gasto:
+                    try:
+                        create_gasto(
+                            fecha=fecha_gasto,
+                            categoria=categoria_gasto,
+                            descripcion=descripcion_gasto,
+                            monto=float(monto_gasto),
+                        )
+                        st.success("✅ Gasto registrado correctamente.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"No se pudo registrar el gasto: {exc}")
+
+        try:
+            gastos_df = load_gastos_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            gastos_df = None
+
+        if gastos_df is None or gastos_df.empty:
+            st.info("Aún no hay gastos generales registrados.")
+        else:
+            st.dataframe(
+                gastos_df,
+                width="stretch",
+                hide_index=True,
+                column_order=["fecha", "categoria", "descripcion", "monto"],
+                column_config={
+                    "fecha": st.column_config.DateColumn("Fecha"),
+                    "categoria": st.column_config.TextColumn("Categoría"),
+                    "descripcion": st.column_config.TextColumn("Descripción"),
+                    "monto": st.column_config.NumberColumn("Monto ($)", format="$%.2f"),
+                },
+            )
     except Exception as exc:
         st.error(f"No se pudo cargar el módulo financiero: {exc}")
 
@@ -1059,6 +1567,50 @@ with dashboard_tab:
         st.warning(str(exc))
 
     st.divider()
+    st.subheader("🏆 Producto Más Vendido y Clientes Top")
+    col_top1, col_top2 = st.columns(2)
+    with col_top1:
+        st.caption("Ranking de productos por unidades vendidas")
+        try:
+            top_productos_df = load_top_products_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            top_productos_df = None
+        if top_productos_df is None or top_productos_df.empty:
+            st.info("Aún no hay ventas registradas.")
+        else:
+            st.dataframe(
+                top_productos_df,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "producto": st.column_config.TextColumn("Producto"),
+                    "unidades_vendidas": st.column_config.NumberColumn("Unidades Vendidas"),
+                    "ingresos_total": st.column_config.NumberColumn("Ingresos Totales ($)", format="$%.2f"),
+                },
+            )
+    with col_top2:
+        st.caption("Ranking de clientes por total comprado")
+        try:
+            top_clientes_df = load_top_clients_dataframe()
+        except Exception as exc:
+            st.warning(str(exc))
+            top_clientes_df = None
+        if top_clientes_df is None or top_clientes_df.empty:
+            st.info("Aún no hay ventas registradas.")
+        else:
+            st.dataframe(
+                top_clientes_df,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "cliente": st.column_config.TextColumn("Cliente"),
+                    "compras_realizadas": st.column_config.NumberColumn("Compras Realizadas"),
+                    "total_comprado": st.column_config.NumberColumn("Total Comprado ($)", format="$%.2f"),
+                },
+            )
+
+    st.divider()
     st.subheader("🚨 Cuentas por Cobrar / Clientes Pendientes")
     try:
         cuentas_pendientes = db.load_pending_accounts_dataframe()
@@ -1069,9 +1621,23 @@ with dashboard_tab:
     if cuentas_pendientes is None or cuentas_pendientes.empty:
         st.success("🎉 ¡Excelente! No hay cuentas pendientes por cobrar.")
     else:
+        ranking_deuda = cuentas_pendientes.sort_values("deuda", ascending=False).reset_index(drop=True)
+        ranking_deuda.insert(0, "ranking", ranking_deuda.index + 1)
+        st.caption("Ranking completo de clientes con saldo pendiente de pago")
         st.dataframe(
-            cuentas_pendientes[["fecha", "cliente", "vendedor", "producto", "precio_venta", "deuda", "estatus"]],
+            ranking_deuda[["ranking", "fecha", "cliente", "vendedor", "producto", "precio_venta", "deuda", "estatus"]],
             width="stretch",
+            hide_index=True,
+            column_config={
+                "ranking": st.column_config.NumberColumn("#"),
+                "fecha": st.column_config.DateColumn("Fecha"),
+                "cliente": st.column_config.TextColumn("Cliente"),
+                "vendedor": st.column_config.TextColumn("Vendedor"),
+                "producto": st.column_config.TextColumn("Producto"),
+                "precio_venta": st.column_config.NumberColumn("Precio de Venta ($)", format="$%.2f"),
+                "deuda": st.column_config.NumberColumn("Saldo Pendiente ($)", format="$%.2f"),
+                "estatus": st.column_config.TextColumn("Estatus"),
+            },
         )
 
         chart_pending = cuentas_pendientes[["cliente", "deuda"]].copy()
@@ -1096,6 +1662,28 @@ with dashboard_tab:
         chart_stock = chart_stock.sort_values("stock", ascending=True)
         st.caption("Stock actual de perfumes bajo control")
         st.bar_chart(chart_stock.set_index("nombre")["stock"])
+
+    st.divider()
+    st.subheader("🔔 Productos Agotados con Mayor Demanda")
+    st.markdown("Productos sin stock (0 unidades), ordenados por demanda histórica — prioriza el reabastecimiento.")
+    try:
+        agotados_df = load_out_of_stock_demand_dataframe()
+    except Exception as exc:
+        st.warning(str(exc))
+        agotados_df = None
+
+    if agotados_df is None or agotados_df.empty:
+        st.success("🎉 No hay productos agotados en este momento.")
+    else:
+        st.dataframe(
+            agotados_df,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "nombre": st.column_config.TextColumn("Producto"),
+                "demanda_historica": st.column_config.NumberColumn("Demanda Histórica (unidades)"),
+            },
+        )
 
     st.divider()
     st.subheader("⚡ Accesos rápidos")
