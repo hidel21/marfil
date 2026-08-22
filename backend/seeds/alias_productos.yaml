@@ -1,0 +1,100 @@
+# Alias de producto declarados a mano, con la evidencia de cada decision.
+#
+# Existe porque la alternativa —un umbral de similitud— se equivoca. La similitud
+# trigram sobre estos mismos datos propone 'Victorinox swis army' -> 'VICTORIA'
+# (0.33) y '212 NYC' -> '212 vip' (0.27), que son productos distintos. El
+# migrate_excel.py original usaba un umbral de 0.52, y por eso hay que reemplazarlo.
+#
+# Regla: si no hay evidencia, NO se declara alias. El producto entra como
+# `borrador_por_revisar` y aparece en la pantalla de calidad de datos. Adivinar un
+# producto es adivinar un costo, y un costo mal puesto es un margen mal calculado.
+
+confirmados:
+  - alias: "AQUA DI GIO"
+    destino: "ACQUA DI GIO"
+    evidencia: >
+      auditoria.md §5.4 lista 'AQUA DI GIO'/'ACQUA DI GIO'/'AGUA DI DIO' como el
+      mismo producto. El destino tiene costo $12 cargado; 'AQUA DI GIO PROFUM' es
+      otro producto (variante Profumo) y no se toca.
+  - alias: "AGUA DI DIO"
+    destino: "ACQUA DI GIO"
+    evidencia: "auditoria.md §5.4, misma familia de grafias."
+  - alias: "ASAD BORBOM"
+    destino: "Asad bourbon"
+    evidencia: >
+      auditoria.md §5.4 lista 'ASAD BORBOM'/'ASAD BOURBOM'/'ASAD BOURBOND'. El
+      destino tiene costo $12. 'ASAD', 'ASAD ELIXIR', 'ASAD ZANZIBAR' y
+      'Asad Lattafa' son productos distintos y quedan aparte.
+  - alias: "ASAD BOURBOM"
+    destino: "Asad bourbon"
+    evidencia: "auditoria.md §5.4."
+  - alias: "Victorinox swis army"
+    destino: "Swiss army"
+    evidencia: >
+      auditoria.md §5.4 lista 'Victorinox swis army'/'SWISS ARMY'. Swiss Army es de
+      Victorinox. El destino tiene costo $9,50. La similitud trigram propone
+      'VICTORIA' (0.33), que es justamente el error que este archivo evita.
+  - alias: "Sauvage Dior"
+    destino: "Sauvage"
+    evidencia: >
+      Unico candidato del catalogo con ese nombre y con costo ($12), que coincide
+      con el costo de la venta en la hoja VENTAS del libro v2 (operacion 20).
+      Sauvage es de Dior.
+  - alias: "Club de Nuit Urban"
+    destino: "CLUB DE NUIT URBAN ELIXIR"
+    evidencia: >
+      La hoja VENTAS del v2 nombra esa venta 'Club de Nuit Urban Elixir' con costo
+      $13, el mismo costo que trae la venta en la base. 'Armaf, Club de nuit Urban
+      man' es otra presentacion y queda aparte.
+  - alias: "Very Good Grul"
+    destino: "Good girl very"
+    evidencia: >
+      auditoria.md §5.4 lista 'Very Good Grul' (VENTAS) vs 'Very Good Girl'
+      (CONTROL) como el mismo producto; en el catalogo esta como 'Good girl very',
+      con costo $9,50.
+  - alias: "Very Good Girl"
+    destino: "Good girl very"
+    evidencia: "auditoria.md §5.4, misma familia."
+  - alias: "Khamarah Qahwa"
+    destino: "KHAMRAH QAHWA"
+    evidencia: >
+      auditoria.md §5.4 lista 'Khamarah Qahwa' vs 'Khamrah Qahwa'. En el catalogo
+      esta como 'KHAMRAH QAHWA'; 'Khamrah' (costo $15) es el producto base y es
+      distinto, asi que no se fusionan.
+  - alias: "EROS MEN VERSACHE"
+    destino: "Eros men"
+    evidencia: >
+      Eros Men es de Versace; el libro v2 lo escribe con el fabricante pegado.
+      El destino tiene costo $9,50.
+  - alias: "CLUD DE NUIT INTENSE"
+    destino: "CLUB DE NUIT MAN INTENSE"
+    evidencia: >
+      auditoria.md §5.4 lista 'CLUD DE NUIT' como error de tecleo de 'CLUB DE NUIT'.
+
+# --- Correcciones de nombre: el valor guardado es un artefacto, no una grafia
+#     alternativa. Se renombra el producto y el nombre viejo queda como alias, para
+#     que el historico siga resolviendo.
+renombrar:
+  - de: "360.0"
+    a: "360"
+    evidencia: >
+      El perfume '360' entro a la base como float ('360.0') en la migracion del
+      Excel. No hay ningun producto llamado '360' del que este sea variante: ES ese
+      producto, con el nombre roto. auditoria.md §2 ya lo habia convertido a texto
+      en el libro. '360 CORAL', '360 FEM' y '360 RED' son otros productos.
+
+a_revisar:
+  - nombre: "212 NYC"
+    motivo: >
+      No existe en el catalogo. 212 NYC es un perfume real y distinto de los once
+      '212 ...' que si estan. La similitud propone '212 vip' (0.27), que es otro
+      producto.
+  - nombre: "Aqua Dubai"
+    motivo: >
+      Dos candidatos posibles y ninguno decide: 'AMBER OUD AQUA DUBAI' y
+      'AMBER OUD AQUA DUBAI NIGHT', los dos sin costo cargado.
+  - nombre: "Mandarin Sky"
+    motivo: >
+      Cuatro candidatos 'ODISSEY/ODYSSEY MANDARIN SKY ...'. El unico con costo
+      ($14) no coincide con el costo de la venta ($15), asi que elegirlo seria
+      inventar.

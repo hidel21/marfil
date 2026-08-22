@@ -1,0 +1,93 @@
+# Plantillas de mensaje. Jinja2, texto plano.
+#
+# WhatsApp renderiza *negrita* y _cursiva_ y nada mas: un editor rico produciria
+# marcado que el canal no muestra.
+#
+# REGLA QUE NO SE ROMPE: los datos de pago NUNCA se escriben aca. Se insertan con
+# {{ datos_pago }}, que los lee de la tabla `configuracion`. Por eso es
+# estructuralmente imposible que una plantilla contenga "V-XX.XXX.XXX", que es lo
+# que la app venia enviando a clientes reales.
+
+- clave: recordatorio_por_vencer
+  nombre: Recordatorio - por vencer
+  canal: whatsapp
+  variables: [cliente_primer_nombre, negocio, detalle_ventas, deuda_usd, deuda_bs, tasa, fecha_vencimiento, datos_pago]
+  cuerpo: |
+    Hola *{{ cliente_primer_nombre }}*, te saludamos de *{{ negocio }}*.
+
+    Te recordamos que tu pago vence el *{{ fecha_vencimiento }}*:
+
+    {{ detalle_ventas }}
+
+    *Total:* ${{ deuda_usd }} USD
+    Al cambio de hoy (Bs. {{ tasa }}): *Bs. {{ deuda_bs }}*
+
+    Datos para el pago movil:
+    {{ datos_pago }}
+
+    Cualquier cosa nos escribis por aca. Gracias!
+
+- clave: recordatorio_vencido
+  nombre: Recordatorio - vencido
+  canal: whatsapp
+  variables: [cliente_primer_nombre, negocio, detalle_ventas, deuda_usd, deuda_bs, tasa, dias_mora, datos_pago]
+  cuerpo: |
+    Hola *{{ cliente_primer_nombre }}*, te saludamos de *{{ negocio }}*.
+
+    Tenes un saldo pendiente de *${{ deuda_usd }} USD* con {{ dias_mora }} dia(s) de atraso:
+
+    {{ detalle_ventas }}
+
+    Al cambio de hoy (Bs. {{ tasa }}) son *Bs. {{ deuda_bs }}*.
+
+    Datos para el pago movil:
+    {{ datos_pago }}
+
+    Si ya lo pagaste, pasanos el numero de referencia y lo registramos. Gracias!
+
+- clave: recordatorio_moroso
+  nombre: Recordatorio - moroso
+  canal: whatsapp
+  variables: [cliente_primer_nombre, negocio, detalle_ventas, deuda_usd, deuda_bs, tasa, dias_mora, vendedor, datos_pago]
+  cuerpo: |
+    Hola *{{ cliente_primer_nombre }}*.
+
+    Te escribimos de *{{ negocio }}* por tu saldo de *${{ deuda_usd }} USD*, que
+    lleva *{{ dias_mora }} dias* de atraso:
+
+    {{ detalle_ventas }}
+
+    Al cambio de hoy (Bs. {{ tasa }}) son *Bs. {{ deuda_bs }}*.
+
+    Nos gustaria resolverlo sin complicaciones: si necesitas dividirlo en cuotas,
+    escribile a {{ vendedor }} y lo acomodamos.
+
+    Datos para el pago movil:
+    {{ datos_pago }}
+
+- clave: confirmacion_pago
+  nombre: Confirmacion de abono
+  canal: whatsapp
+  variables: [cliente_primer_nombre, negocio, ultimo_abono_usd, ultimo_abono_fecha, deuda_usd]
+  cuerpo: |
+    Hola *{{ cliente_primer_nombre }}*, recibimos tu abono de
+    *${{ ultimo_abono_usd }} USD* del {{ ultimo_abono_fecha }}. Gracias!
+
+    {% if deuda_usd|float > 0 -%}
+    Te queda un saldo de *${{ deuda_usd }} USD*.
+    {%- else -%}
+    *Tu cuenta queda al dia.* Un gusto, {{ negocio }}.
+    {%- endif %}
+
+- clave: plan_de_pago
+  nombre: Plan de cuotas acordado
+  canal: whatsapp
+  variables: [cliente_primer_nombre, negocio, deuda_usd, cuotas_total, detalle_cuotas, datos_pago]
+  cuerpo: |
+    Hola *{{ cliente_primer_nombre }}*, te confirmamos el plan de pago acordado con
+    *{{ negocio }}* por *${{ deuda_usd }} USD* en *{{ cuotas_total }}* cuotas:
+
+    {{ detalle_cuotas }}
+
+    Datos para el pago movil:
+    {{ datos_pago }}

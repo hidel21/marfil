@@ -263,9 +263,10 @@ def test_un_movimiento_de_cero_no_tiene_sentido(conn):
 
 # ------------------------------------------------------- parámetros y recordatorios
 def test_dos_vigencias_del_mismo_parametro_no_pueden_solaparse(conn):
+    # Clave propia del test: las de negocio ya vienen sembradas por 0002.
     insertar = text(
         "INSERT INTO parametros_precio (clave, valor, vigencia) "
-        "VALUES ('GANANCIA_BCV', :v, daterange(:d, NULL))"
+        "VALUES ('PARAMETRO_DE_PRUEBA', :v, daterange(:d, NULL))"
     )
     conn.execute(insertar, {"v": "1.2", "d": "2026-06-01"})
     with pytest.raises(IntegrityError):
@@ -273,23 +274,23 @@ def test_dos_vigencias_del_mismo_parametro_no_pueden_solaparse(conn):
 
 
 def test_un_parametro_puede_versionarse_sin_solapar(conn):
-    """Cambiar la ganancia deja de ser irreversible."""
+    """Cambiar la ganancia deja de ser irreversible: queda el historial."""
     conn.execute(
         text(
             "INSERT INTO parametros_precio (clave, valor, vigencia) "
-            "VALUES ('GANANCIA_BCV', 1.2, daterange('2026-06-01','2026-09-01'))"
+            "VALUES ('PARAMETRO_DE_PRUEBA', 1.2, daterange('2026-06-01','2026-09-01'))"
         )
     )
     conn.execute(
         text(
             "INSERT INTO parametros_precio (clave, valor, vigencia) "
-            "VALUES ('GANANCIA_BCV', 1.3, daterange('2026-09-01', NULL))"
+            "VALUES ('PARAMETRO_DE_PRUEBA', 1.3, daterange('2026-09-01', NULL))"
         )
     )
     vigente = conn.execute(
         text(
             "SELECT valor FROM parametros_precio "
-            "WHERE clave = 'GANANCIA_BCV' AND vigencia @> DATE '2026-07-15'"
+            "WHERE clave = 'PARAMETRO_DE_PRUEBA' AND vigencia @> DATE '2026-07-15'"
         )
     ).scalar()
     assert float(vigente) == 1.2
@@ -299,12 +300,7 @@ def test_nadie_recibe_dos_recordatorios_el_mismo_dia(conn):
     """La red anti-spam es un índice único, no lógica de aplicación."""
     c = crear_cliente(conn, "Moroso", telefono="+584121234567")
     v = crear_venta_legacy(conn)
-    conn.execute(
-        text(
-            "INSERT INTO plantillas_mensaje (clave, nombre, cuerpo) "
-            "VALUES ('recordatorio_vencido', 'Vencido', 'Hola {{cliente}}')"
-        )
-    )
+    # La plantilla ya viene sembrada por la revision 0002.
     insertar = text(
         "INSERT INTO recordatorios (cliente_id, venta_id, plantilla_clave, plantilla_version, "
         "cuerpo_renderizado, saldo_usd_al_generar) "

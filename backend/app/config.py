@@ -8,6 +8,7 @@ porque el backend usa psycopg 3.
 
 from __future__ import annotations
 
+import secrets
 import tomllib
 from functools import lru_cache
 from pathlib import Path
@@ -39,7 +40,10 @@ class Settings(BaseSettings):
     entorno: str = Field(default="desarrollo")
     database_url: str = Field(default="")
 
-    jwt_secret: str = Field(default="cambiar-en-produccion")
+    #: En desarrollo se genera uno al azar por proceso: sin secreto compartido, los
+    #: tokens no sobreviven un reinicio, que en local es lo correcto. En produccion
+    #: `validar_produccion()` exige que este definido y sea largo.
+    jwt_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(48))
     jwt_algoritmo: str = Field(default="HS256")
     access_token_minutos: int = Field(default=30)
     refresh_token_dias: int = Field(default=30)
@@ -63,6 +67,32 @@ class Settings(BaseSettings):
     @property
     def lista_cors(self) -> list[str]:
         return [o.strip() for o in self.cors_origenes.split(",") if o.strip()]
+
+    @property
+    def es_produccion(self) -> bool:
+        return self.entorno.lower() in {"produccion", "production", "prod"}
+
+    def validar_produccion(self) -> None:
+        """Se llama al arrancar la app. Falla temprano y ruidoso, no en el primer login."""
+        if not self.es_produccion:
+            return
+        problemas = []
+        if len(self.jwt_secret.encode()) < 32:
+            problemas.append(
+                "JWT_SECRET tiene menos de 32 bytes: HMAC-SHA256 necesita al menos eso "
+                "(RFC 7518 §3.2). Genera uno con `python -c \"import secrets;"
+                "print(secrets.token_urlsafe(48))\"`."
+            )
+        if not self.database_url:
+            problemas.append("Falta DATABASE_URL.")
+        if "localhost" in self.cors_origenes:
+            problemas.append(
+                f"CORS_ORIGENES apunta a localhost en produccion: {self.cors_origenes!r}"
+            )
+        if problemas:
+            raise RuntimeError(
+                "Configuracion invalida para produccion:\n  - " + "\n  - ".join(problemas)
+            )
 
     def exigir_database_url(self) -> str:
         if not self.database_url:
