@@ -2,11 +2,15 @@
 
 Datos, no estructura. Lo que entra:
 
- 1. **Los tres socios como `usuarios` con rol admin**, ligados a las filas de
-    `socios` que ya existen (Gregory, Hidelberg, Gregor). Se siembran con el hash
-    bloqueado: la cuenta existe pero no se puede entrar hasta que alguien fije la
-    primera contrasena con `python -m app.cli establecer-password`. Sembrar una
-    contrasena conocida seria peor que no sembrar nada.
+ 1. **Un solo usuario: Hidelberg, el superadmin.** Los otros dos socios existen como
+    filas de `socios` (para el reparto de utilidad) pero **sin cuenta**: Hidelberg les
+    crea el perfil desde la app y ellos cambian la contrasena al entrar. Es lo que
+    pidio el dueno, y es mejor que sembrar tres cuentas: no hay direcciones de correo
+    inventadas ni cuentas que nadie reclama.
+
+    Se siembra con el hash bloqueado, asi que ni siquiera Hidelberg puede entrar hasta
+    fijar su contrasena con `python -m app.cli establecer-password`. Sembrar una
+    contrasena conocida seria peor que no sembrar ninguna.
 
  2. **Los parametros de precio**, versionados con vigencia desde 2026-06-01 (la
     primera venta del libro es del 19/06). Los cuatro primeros salen de la hoja
@@ -120,17 +124,14 @@ CONFIGURACION = (
     ("zona_horaria", {"valor": "America/Caracas"}, False, "Zona para vencimientos y jobs"),
 )
 
-# Email de contacto conocido para Hidelberg. Los otros dos quedan con un dominio
-# local evidente para que salte a la vista que hay que corregirlos: inventar una
-# direccion que parezca real seria peor.
-#: Los tres socios administradores. Se siembran solo si la tabla esta vacia.
+#: Los tres socios, para el reparto de utilidad. Se siembran solo si la tabla esta
+#: vacia. **Tener una fila en `socios` no es tener una cuenta**: los perfiles los crea
+#: el superadmin desde la app, con las direcciones reales de cada uno.
 SOCIOS_FUNDADORES = ("Gregory", "Hidelberg", "Gregor")
 
-EMAILS_SOCIOS = {
-    "Hidelberg": "hm@intelli-next.com",
-    "Gregory": "gregory@marfil.local",
-    "Gregor": "gregor@marfil.local",
-}
+#: El superadmin. Es el unico usuario que crea la migracion.
+SUPERADMIN_NOMBRE = "Hidelberg"
+SUPERADMIN_EMAIL = "hm@intelli-next.com"
 
 
 def upgrade() -> None:
@@ -149,25 +150,20 @@ def upgrade() -> None:
                 {"n": nombre},
             )
 
-    socios = conexion.execute(
-        sa.text("SELECT id, nombre FROM socios ORDER BY id")
-    ).all()
-    for socio_id, nombre in socios:
-        email = EMAILS_SOCIOS.get(nombre, f"{nombre.strip().lower()}@marfil.local")
-        usuario_id = conexion.execute(
-            sa.text(
-                "INSERT INTO usuarios (email, nombre, password_hash, rol, "
-                "debe_cambiar_password) "
-                "VALUES (:email, :nombre, :hash, 'admin', TRUE) "
-                "ON CONFLICT (email) DO UPDATE SET nombre = EXCLUDED.nombre "
-                "RETURNING id"
-            ),
-            {"email": email, "nombre": nombre, "hash": HASH_BLOQUEADO},
-        ).scalar_one()
-        conexion.execute(
-            sa.text("UPDATE socios SET usuario_id = :u WHERE id = :s"),
-            {"u": usuario_id, "s": socio_id},
-        )
+    # Solo el superadmin. Los demas socios quedan como filas de `socios` sin cuenta:
+    # el reparto de utilidad no necesita un login, y las cuentas las crea Hidelberg.
+    usuario_id = conexion.execute(
+        sa.text(
+            "INSERT INTO usuarios (email, nombre, password_hash, rol, "
+            "debe_cambiar_password) VALUES (:email, :nombre, :hash, 'admin', TRUE) "
+            "ON CONFLICT (email) DO UPDATE SET nombre = EXCLUDED.nombre RETURNING id"
+        ),
+        {"email": SUPERADMIN_EMAIL, "nombre": SUPERADMIN_NOMBRE, "hash": HASH_BLOQUEADO},
+    ).scalar_one()
+    conexion.execute(
+        sa.text("UPDATE socios SET usuario_id = :u WHERE nombre = :n"),
+        {"u": usuario_id, "n": SUPERADMIN_NOMBRE},
+    )
 
     # 2. Parámetros de precio
     for clave, valor, motivo in PARAMETROS:
@@ -230,6 +226,5 @@ def downgrade() -> None:
     op.execute("DELETE FROM parametros_precio")
     conexion.execute(sa.text("UPDATE socios SET usuario_id = NULL"))
     conexion.execute(
-        sa.text("DELETE FROM usuarios WHERE email = ANY(:emails)"),
-        {"emails": list(EMAILS_SOCIOS.values())},
+        sa.text("DELETE FROM usuarios WHERE email = :e"), {"e": SUPERADMIN_EMAIL}
     )

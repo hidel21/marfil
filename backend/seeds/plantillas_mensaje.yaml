@@ -60,7 +60,7 @@
     Al cambio de hoy (Bs. {{ tasa }}) son *Bs. {{ deuda_bs }}*.
 
     Nos gustaria resolverlo sin complicaciones: si necesitas dividirlo en cuotas,
-    escribile a {{ vendedor }} y lo acomodamos.
+    escribinos{% if vendedor %} a {{ vendedor }}{% endif %} y lo acomodamos.
 
     Datos para el pago movil:
     {{ datos_pago }}

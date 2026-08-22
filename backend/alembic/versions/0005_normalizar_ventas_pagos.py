@@ -158,6 +158,13 @@ def upgrade() -> None:
     # que Streamlit sigue escribiendo, asi que se ensancha para que la traduccion al
     # libro no herede la perdida.
     op.alter_column("pagos", "tasa_bcv", type_=sa.Numeric(18, 8), existing_nullable=False)
+    # Las columnas legacy de `pagos` pasan a nulables: son un espejo que llena un
+    # trigger, no un dato que el escritor tenga que traer. `cliente` era NOT NULL y
+    # hacia fallar cualquier pago que no viniera de Streamlit.
+    op.alter_column("pagos", "cliente", existing_type=sa.String(200), nullable=True)
+    op.alter_column("pagos", "tasa_bcv", existing_type=sa.Numeric(18, 8), nullable=True)
+    op.alter_column("pagos", "monto_bs", existing_type=sa.Numeric(10, 2), nullable=True)
+    op.alter_column("pagos", "nro_cuota", existing_type=sa.Integer(), nullable=True)
 
     hay_datos = conexion.execute(sa.text("SELECT count(*) FROM ventas")).scalar_one() > 0
 
@@ -604,6 +611,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(
         """
+        DROP TRIGGER IF EXISTS trg_pagos_espejo_legacy ON pagos;
+        DROP FUNCTION IF EXISTS fn_pagos_espejo_legacy() CASCADE;
+        DROP FUNCTION IF EXISTS fn_escribe_la_api() CASCADE;
         DROP TRIGGER IF EXISTS trg_compat_pagos_completar ON pagos;
         DROP TRIGGER IF EXISTS trg_compat_espejo_saldo ON ventas;
         DROP TRIGGER IF EXISTS trg_compat_ventas_linea ON ventas;

@@ -322,50 +322,106 @@ GROUP BY p.id, p.nombre, p.linea, p.costo_usd;
 -- Alimenta las tarjetas de /auditoria/calidad. Un solo lugar donde se define que
 -- cuenta como problema, para que el numero de la tarjeta y las filas del drill-down
 -- no puedan discrepar.
+--
+-- `severidad` mapea directo al color de la tarjeta: critica = roja, alta = ambar,
+-- media = neutra. `accion` y `ruta` son lo que hace que la tarjeta sea trabajo y no
+-- una queja: dicen que hacer y donde.
+--
+-- Los deudores sin telefono son CRITICA y no alta: no es un dato incompleto, es la
+-- funcion de cobranza entera bloqueada. Hay plata vencida y ninguna via para
+-- reclamarla.
 CREATE OR REPLACE VIEW v_calidad_datos AS
-SELECT 'productos_sin_costo' AS clave, 'Productos sin costo cargado' AS etiqueta,
-       'alta' AS severidad,
-       (SELECT count(*) FROM productos
-         WHERE estado <> 'fusionado' AND costo_usd IS NULL AND precio_original_usd IS NULL) AS cantidad,
-       'Su precio no se puede calcular ni validar' AS explicacion
-UNION ALL
-SELECT 'productos_por_revisar', 'Productos pendientes de revision', 'media',
-       (SELECT count(*) FROM productos WHERE estado = 'borrador_por_revisar'),
-       'Creados al vuelo desde una venta o sin evidencia para fusionar'
-UNION ALL
-SELECT 'clientes_sin_telefono', 'Clientes sin telefono', 'alta',
-       (SELECT count(*) FROM clientes
-         WHERE estado = 'activo' AND telefono_e164 IS NULL),
-       'Sin telefono no se les puede enviar un recordatorio'
-UNION ALL
-SELECT 'deudores_sin_telefono', 'Deudores sin telefono', 'alta',
-       (SELECT count(*) FROM v_deuda_cliente WHERE NOT puede_notificar),
-       'Deben plata y no hay como notificarles'
-UNION ALL
-SELECT 'pagos_sin_tasa_confiable', 'Pagos con tasa deducida', 'media',
-       (SELECT count(*) FROM pagos WHERE origen_tasa = 'sintetizada_migracion'),
-       'La tasa se despejo de una heuristica, no se registro'
-UNION ALL
-SELECT 'ventas_bajo_costo', 'Ventas por debajo del costo', 'alta',
-       (SELECT count(*) FROM venta_items WHERE precio_unitario_usd < costo_unitario_usd),
-       'Se vendio perdiendo dinero'
-UNION ALL
-SELECT 'fuga_precio', 'Ventas cobradas bajo la politica', 'alta',
-       (SELECT count(*) FROM v_fuga_precio),
-       'Se cobro el nivel divisa declarando BCV, o menos'
-UNION ALL
-SELECT 'clientes_a_revisar', 'Clientes posiblemente duplicados', 'media',
-       (SELECT count(*) FROM clientes WHERE notas LIKE 'Revisar:%'),
-       'Un nombre es prefijo de otro; hay que decidir si es la misma persona'
-UNION ALL
-SELECT 'conciliacion_ventas', 'Ventas descuadradas', 'critica',
-       (SELECT count(*) FROM v_conciliacion_ventas WHERE NOT ok),
-       'El saldo almacenado no coincide con el libro de pagos'
-UNION ALL
-SELECT 'conciliacion_pagos', 'Pagos descuadrados', 'critica',
-       (SELECT count(*) FROM v_conciliacion_pagos WHERE NOT ok),
-       'monto en moneda / tasa no reproduce el monto en dolares'
-UNION ALL
-SELECT 'conciliacion_stock', 'Stock descuadrado', 'media',
-       (SELECT count(*) FROM v_conciliacion_stock WHERE NOT ok),
-       'El stock guardado no coincide con la suma de sus movimientos';
+WITH problemas AS (
+    SELECT
+        'deudores_sin_telefono' AS clave,
+        'Deudores sin telefono' AS etiqueta,
+        'critica' AS severidad,
+        (SELECT count(*) FROM v_deuda_cliente WHERE NOT puede_notificar) AS cantidad,
+        (SELECT COALESCE(sum(deuda_usd), 0) FROM v_deuda_cliente WHERE NOT puede_notificar)
+            AS monto_usd,
+        'Deben plata y no hay como notificarles: sin telefono no se puede enviar un recordatorio'
+            AS explicacion,
+        'Cargar los telefonos' AS accion,
+        '/clientes?sin_telefono=1&con_deuda=1' AS ruta,
+        10 AS prioridad
+    UNION ALL
+    SELECT 'conciliacion_ventas', 'Ventas descuadradas', 'critica',
+        (SELECT count(*) FROM v_conciliacion_ventas WHERE NOT ok),
+        (SELECT COALESCE(sum(abs(diferencia_usd)), 0) FROM v_conciliacion_ventas WHERE NOT ok),
+        'El saldo almacenado no coincide con el libro de pagos',
+        'Revisar la conciliacion', '/auditoria/conciliacion?tipo=ventas', 20
+    UNION ALL
+    SELECT 'conciliacion_pagos', 'Pagos descuadrados', 'critica',
+        (SELECT count(*) FROM v_conciliacion_pagos WHERE NOT ok),
+        (SELECT COALESCE(sum(abs(diferencia_usd)), 0) FROM v_conciliacion_pagos WHERE NOT ok),
+        'El monto en moneda dividido por la tasa no reproduce el monto en dolares',
+        'Revisar la conciliacion', '/auditoria/conciliacion?tipo=pagos', 21
+    UNION ALL
+    SELECT 'fuga_precio', 'Ventas cobradas bajo la politica', 'alta',
+        (SELECT count(*) FROM v_fuga_precio),
+        (SELECT COALESCE(sum(fuga_usd), 0) FROM v_fuga_precio),
+        'Se cobro el nivel divisa declarando BCV, o directamente menos que la politica',
+        'Ver el detalle por vendedor', '/auditoria/calidad/fuga-precio', 30
+    UNION ALL
+    SELECT 'ventas_bajo_costo', 'Ventas por debajo del costo', 'alta',
+        (SELECT count(*) FROM venta_items WHERE precio_unitario_usd < costo_unitario_usd),
+        (SELECT COALESCE(sum((costo_unitario_usd - precio_unitario_usd) * cantidad), 0)
+           FROM venta_items WHERE precio_unitario_usd < costo_unitario_usd),
+        'Se vendio perdiendo dinero',
+        'Revisar y documentar el motivo', '/auditoria/calidad/bajo-costo', 31
+    UNION ALL
+    SELECT 'productos_sin_costo', 'Productos sin costo cargado', 'alta',
+        (SELECT count(*) FROM productos
+          WHERE estado <> 'fusionado' AND costo_usd IS NULL AND precio_original_usd IS NULL),
+        NULL,
+        'Su precio no se puede calcular ni validar contra la politica',
+        'Cargar los costos', '/productos?sin_costo=1', 32
+    UNION ALL
+    SELECT 'clientes_sin_telefono', 'Clientes sin telefono', 'alta',
+        (SELECT count(*) FROM clientes WHERE estado = 'activo' AND telefono_e164 IS NULL),
+        NULL,
+        'No se les podra enviar un recordatorio si algun dia deben',
+        'Cargar los telefonos', '/clientes?sin_telefono=1', 33
+    UNION ALL
+    SELECT 'productos_por_revisar', 'Productos pendientes de revision', 'media',
+        (SELECT count(*) FROM productos WHERE estado = 'borrador_por_revisar'),
+        NULL,
+        'Creados al vuelo desde una venta, o sin evidencia suficiente para fusionar',
+        'Aprobar, renombrar o fusionar', '/productos/revision', 40
+    UNION ALL
+    SELECT 'pagos_sin_tasa_confiable', 'Pagos con tasa deducida', 'media',
+        (SELECT count(*) FROM pagos WHERE origen_tasa = 'sintetizada_migracion'),
+        NULL,
+        'La tasa se despejo de una heuristica en la migracion, no se registro',
+        'Sembrar las tasas historicas y recalcular', '/ajustes/tasas', 41
+    UNION ALL
+    SELECT 'clientes_a_revisar', 'Clientes posiblemente duplicados', 'media',
+        (SELECT count(*) FROM clientes WHERE notas LIKE 'Revisar:%'),
+        NULL,
+        'Un nombre es prefijo de otro; hay que decidir si es la misma persona',
+        'Comparar y decidir', '/clientes?a_revisar=1', 42
+    UNION ALL
+    SELECT 'conciliacion_stock', 'Stock descuadrado', 'media',
+        (SELECT count(*) FROM v_conciliacion_stock WHERE NOT ok),
+        NULL,
+        'El stock guardado no coincide con la suma de sus movimientos',
+        'Revisar la conciliacion', '/auditoria/conciliacion?tipo=stock', 43
+    UNION ALL
+    SELECT 'datos_pago_incompletos', 'Datos de pago sin configurar', 'critica',
+        (SELECT count(*) FROM (
+            SELECT jsonb_each_text(valor) AS campo FROM configuracion WHERE clave = 'datos_pago'
+         ) c WHERE (c.campo).key IN ('banco', 'documento', 'telefono')
+           AND COALESCE(btrim((c.campo).value), '') = ''),
+        NULL,
+        'Sin ellos no se puede generar ningun recordatorio: la plantilla no renderiza',
+        'Completar los datos de pago', '/ajustes/pagos', 11
+)
+SELECT clave, etiqueta, severidad, cantidad, monto_usd, explicacion, accion, ruta,
+       -- La tarjeta se pinta solo si hay algo que hacer.
+       (cantidad > 0) AS visible
+FROM problemas
+ORDER BY (cantidad = 0), prioridad;
+
+COMMENT ON VIEW v_calidad_datos IS
+    'Tarjetas de calidad de datos. severidad: critica = roja, alta = ambar, media = '
+    'neutra. `accion` y `ruta` hacen que la tarjeta sea trabajo y no una queja.';

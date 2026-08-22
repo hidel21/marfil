@@ -14,8 +14,20 @@
 -- Es deliberadamente generoso (crea el cliente si no existe, resuelve el vendedor
 -- por nombre) porque su alternativa es que el negocio no pueda registrar una venta
 -- durante la convivencia.
+--
+-- IMPORTANTE: la capa se APARTA cuando escribe la API. La API ya escribe el modelo
+-- canonico —crea sus propias lineas, resuelve el cliente, elige el nivel de precio—,
+-- asi que si los triggers tambien lo hicieran habria dos lineas 1 para la misma
+-- venta. La API se declara con `SET LOCAL app.escritor = 'api'` en cada transaccion
+-- y estas funciones lo respetan. Streamlit no declara nada, y por eso las recibe.
 
 -- ------------------------------------------------------- ventas: rellenar lo nuevo
+-- True cuando quien escribe es la API, que ya trae el modelo canonico completo.
+CREATE OR REPLACE FUNCTION fn_escribe_la_api() RETURNS boolean
+LANGUAGE sql STABLE AS $$
+    SELECT COALESCE(nullif(current_setting('app.escritor', true), ''), '') = 'api';
+$$;
+
 CREATE OR REPLACE FUNCTION fn_compat_ventas_completar() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -23,6 +35,10 @@ DECLARE
     v_cliente_id integer;
     v_plazo      integer;
 BEGIN
+    IF fn_escribe_la_api() THEN
+        RETURN NEW;
+    END IF;
+
     -- Codigo legible: V-<anio>-<id>. Se completa despues del INSERT porque el id
     -- todavia no existe; aca solo se reserva un valor unico provisional.
     IF NEW.codigo IS NULL THEN
@@ -102,6 +118,10 @@ DECLARE
     v_precio      numeric(14,2) := COALESCE(NEW.precio_venta, 0);
     v_costo       numeric(14,2) := COALESCE(NEW.costo, 0);
 BEGIN
+    IF fn_escribe_la_api() THEN
+        RETURN NULL;
+    END IF;
+
     -- Codigo definitivo, ahora que hay id.
     UPDATE ventas
        SET codigo = 'V-' || to_char(fecha, 'YYYY') || '-' || lpad(id::text, 4, '0')
@@ -164,6 +184,13 @@ BEGIN
                precio_venta = NEW.total_usd,
                costo = NEW.costo_usd,
                ganancia = NEW.total_usd - NEW.costo_usd,
+               -- Tambien el producto y la cantidad, para que una venta creada por la
+               -- API se vea completa en las 28 consultas de Streamlit.
+               producto = COALESCE((SELECT string_agg(i.descripcion_libre, ', ' ORDER BY i.linea)
+                                      FROM venta_items i WHERE i.venta_id = NEW.id),
+                                   ventas.producto),
+               cantidad = COALESCE((SELECT sum(i.cantidad) FROM venta_items i
+                                      WHERE i.venta_id = NEW.id), ventas.cantidad),
                estatus = CASE WHEN NEW.estado_cobro = 'pagada'
                               THEN 'YA PAGO' ELSE 'PENDIENTE' END
          WHERE id = NEW.id
@@ -180,6 +207,10 @@ $$;
 CREATE OR REPLACE FUNCTION fn_compat_pagos_completar() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+    IF fn_escribe_la_api() THEN
+        RETURN NEW;
+    END IF;
+
     IF NEW.tipo IS NULL THEN
         NEW.tipo := 'abono';
     END IF;
@@ -218,6 +249,49 @@ BEGIN
         NEW.referencia := NULL;
     END IF;
 
+    RETURN NEW;
+END;
+$$;
+
+
+-- ------------------------------------- pagos: espejo de las columnas legacy
+-- Este SI corre siempre, tambien para la API.
+--
+-- `pagos.cliente` y `pagos.producto` son copias del nombre que Streamlit lee en dos
+-- de sus consultas. La API no tiene por que conocer columnas obsoletas —y `cliente`
+-- era NOT NULL, asi que un pago desde la API fallaba—, pero mientras Streamlit siga
+-- leyendolas alguien las tiene que llenar. Las llena la base.
+CREATE OR REPLACE FUNCTION fn_pagos_espejo_legacy() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.cliente IS NULL THEN
+        SELECT c.nombre INTO NEW.cliente
+          FROM ventas v JOIN clientes c ON c.id = v.cliente_id
+         WHERE v.id = NEW.venta_id;
+    END IF;
+
+    IF NEW.producto IS NULL THEN
+        SELECT string_agg(i.descripcion_libre, ', ' ORDER BY i.linea) INTO NEW.producto
+          FROM venta_items i WHERE i.venta_id = NEW.venta_id;
+    END IF;
+
+    -- El "bloque de pago" 1/2/3 del Excel: solo linaje, pero la columna es NOT NULL.
+    IF NEW.nro_cuota IS NULL THEN
+        NEW.nro_cuota := LEAST(3, GREATEST(1,
+            (SELECT count(*) + 1 FROM pagos p
+              WHERE p.venta_id = NEW.venta_id AND p.tipo = 'abono')::int));
+    END IF;
+
+    IF NEW.monto_bs IS NULL THEN
+        NEW.monto_bs := CASE WHEN NEW.moneda = 'VES' THEN NEW.monto_moneda ELSE 0 END;
+    END IF;
+    IF NEW.tasa_bcv IS NULL THEN
+        NEW.tasa_bcv := NEW.tasa_aplicada;
+    END IF;
+    IF NEW.referencia IS NULL AND NEW.moneda <> 'VES' THEN
+        -- Streamlit muestra la referencia como texto; el canal es mejor que un hueco.
+        NULL;
+    END IF;
     RETURN NEW;
 END;
 $$;

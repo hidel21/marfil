@@ -20,6 +20,9 @@ from app.config import obtener_settings
 
 usuario_actual_id: ContextVar[int | None] = ContextVar("usuario_actual_id", default=None)
 request_id_actual: ContextVar[str | None] = ContextVar("request_id_actual", default=None)
+#: Quien escribe: 'api' hace que la capa de compatibilidad con Streamlit se aparte,
+#: porque la API ya escribe el modelo canonico completo.
+escritor_actual: ContextVar[str | None] = ContextVar("escritor_actual", default=None)
 
 _engine: Engine | None = None
 _SessionLocal: sessionmaker[Session] | None = None
@@ -53,19 +56,49 @@ def obtener_sessionmaker() -> sessionmaker[Session]:
 
 
 def _registrar_contexto_auditoria(factory: sessionmaker[Session]) -> None:
+    """Propaga el contexto a Postgres al empezar cada transaccion.
+
+    Los ContextVar son el mecanismo de respaldo, para el ETL y los jobs, que corren
+    en un solo contexto. **En la API no se puede depender de ellos**: FastAPI corre
+    las dependencias sincronicas en un threadpool, y la transaccion puede empezar en
+    un contexto distinto del que puso el valor. Por eso `app/api/deps.py` llama a
+    `fijar_contexto()` de forma explicita sobre la sesion.
+    """
+
     @event.listens_for(factory, "after_begin")
     def _set_local(session: Session, transaction, connection) -> None:  # noqa: ANN001, ARG001
-        usuario = usuario_actual_id.get()
-        request = request_id_actual.get()
-        if usuario is not None:
-            connection.execute(
-                text("SELECT set_config('app.usuario_id', :v, true)"),
-                {"v": str(usuario)},
-            )
-        if request is not None:
-            connection.execute(
-                text("SELECT set_config('app.request_id', :v, true)"),
-                {"v": request},
+        for clave, valor in (
+            ("app.usuario_id", usuario_actual_id.get()),
+            ("app.request_id", request_id_actual.get()),
+            ("app.escritor", escritor_actual.get()),
+        ):
+            if valor is not None:
+                connection.execute(
+                    text("SELECT set_config(:k, :v, true)"),
+                    {"k": clave, "v": str(valor)},
+                )
+
+
+def fijar_contexto(
+    sesion: Session,
+    *,
+    usuario_id: int | None = None,
+    request_id: str | None = None,
+    escritor: str | None = None,
+) -> None:
+    """Fija el contexto de auditoria en la transaccion actual, sin ContextVars.
+
+    `set_config(..., true)` es equivalente a `SET LOCAL`: vale hasta el fin de la
+    transaccion y no se filtra a la siguiente conexion del pool.
+    """
+    for clave, valor in (
+        ("app.usuario_id", usuario_id),
+        ("app.request_id", request_id),
+        ("app.escritor", escritor),
+    ):
+        if valor is not None:
+            sesion.execute(
+                text("SELECT set_config(:k, :v, true)"), {"k": clave, "v": str(valor)}
             )
 
 

@@ -20,24 +20,37 @@ pytestmark = pytest.mark.usefixtures("engine")
 
 
 # ------------------------------------------------------------------- 0002 semilla
-def test_los_tres_socios_son_usuarios_admin(conn):
+def test_se_siembra_un_solo_usuario_el_superadmin(conn):
+    """Los otros dos socios existen para el reparto, pero sin cuenta.
+
+    Sembrar tres cuentas obligaba a inventar dos direcciones de correo y dejaba dos
+    perfiles que nadie reclama. Los crea el superadmin, con las direcciones reales.
+    """
     filas = conn.execute(
         text(
-            "SELECT u.nombre, u.rol::text, s.id IS NOT NULL AS ligado "
-            "FROM usuarios u LEFT JOIN socios s ON s.usuario_id = u.id "
-            "WHERE u.rol = 'admin' ORDER BY u.nombre"
+            "SELECT u.nombre, u.email, s.id IS NOT NULL AS ligado "
+            "FROM usuarios u LEFT JOIN socios s ON s.usuario_id = u.id ORDER BY u.nombre"
         )
     ).all()
-    assert [f.nombre for f in filas] == ["Gregor", "Gregory", "Hidelberg"]
-    assert all(f.ligado for f in filas), "cada socio administrador va ligado a su fila en socios"
+    assert [f.nombre for f in filas] == ["Hidelberg"]
+    assert filas[0].email == "hm@intelli-next.com"
+    assert filas[0].ligado, "queda ligado a su fila de reparto de utilidad"
 
 
-def test_los_usuarios_sembrados_no_pueden_entrar(conn):
+def test_los_socios_sin_cuenta_quedan_listados(conn):
+    """Es la lista de trabajo del superadmin: a quién le falta el perfil."""
+    pendientes = conn.execute(
+        text("SELECT nombre FROM socios WHERE usuario_id IS NULL ORDER BY nombre")
+    ).scalars().all()
+    assert pendientes == ["Gregor", "Gregory"]
+
+
+def test_el_superadmin_tampoco_puede_entrar_sin_fijar_su_clave(conn):
     """Sembrar una contraseña conocida sería peor que no sembrar ninguna."""
     bloqueados = conn.execute(
         text("SELECT count(*) FROM usuarios WHERE password_hash = '!bloqueado'")
     ).scalar()
-    assert bloqueados == 3
+    assert bloqueados == 1
 
 
 def test_la_politica_de_precios_es_la_del_libro(conn):
