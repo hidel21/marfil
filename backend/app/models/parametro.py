@@ -90,13 +90,9 @@ class Configuracion(Base):
 
     clave: Mapped[str] = mapped_column(String(64), primary_key=True)
     valor: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    es_secreto: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="false"
-    )
+    es_secreto: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     descripcion: Mapped[str | None] = mapped_column(Text)
-    actualizado_por_usuario_id: Mapped[int | None] = mapped_column(
-        ForeignKey("usuarios.id")
-    )
+    actualizado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

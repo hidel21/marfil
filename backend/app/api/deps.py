@@ -167,22 +167,16 @@ class Alcance:
         if self.usuario.es_admin:
             return "TRUE", {}
         if self.usuario.es_vendedor:
-            return "v.vendedor_usuario_id = :alcance_usuario", {
-                "alcance_usuario": self.usuario.id
-            }
+            return "v.vendedor_usuario_id = :alcance_usuario", {"alcance_usuario": self.usuario.id}
         # Afiliado: solo lo suyo. Sin cliente_id no ve nada, que es lo correcto.
-        return "v.cliente_id = :alcance_cliente", {
-            "alcance_cliente": self.usuario.cliente_id or -1
-        }
+        return "v.cliente_id = :alcance_cliente", {"alcance_cliente": self.usuario.cliente_id or -1}
 
     @property
     def cobranza_where(self) -> tuple[str, dict[str, object]]:
         if self.usuario.es_admin:
             return "TRUE", {}
         if self.usuario.es_vendedor:
-            return "cb.vendedor_usuario_id = :alcance_usuario", {
-                "alcance_usuario": self.usuario.id
-            }
+            return "cb.vendedor_usuario_id = :alcance_usuario", {"alcance_usuario": self.usuario.id}
         return "cb.cliente_id = :alcance_cliente", {
             "alcance_cliente": self.usuario.cliente_id or -1
         }

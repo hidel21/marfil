@@ -37,8 +37,14 @@ class Sesion:
     debe_cambiar_password: bool
 
 
-def _emitir(sesion: Session, usuario, *, familia_id: uuid.UUID | None = None,
-            ip: str | None = None, user_agent: str | None = None) -> Sesion:
+def _emitir(
+    sesion: Session,
+    usuario,
+    *,
+    familia_id: uuid.UUID | None = None,
+    ip: str | None = None,
+    user_agent: str | None = None,
+) -> Sesion:
     settings = obtener_settings()
     claro, hasheado = generar_refresh_token()
     familia = familia_id or uuid.uuid4()
@@ -69,7 +75,11 @@ def _emitir(sesion: Session, usuario, *, familia_id: uuid.UUID | None = None,
 
 
 def login(
-    sesion: Session, email: str, password: str, *, ip: str | None = None,
+    sesion: Session,
+    email: str,
+    password: str,
+    *,
+    ip: str | None = None,
     user_agent: str | None = None,
 ) -> Sesion:
     fila = sesion.execute(
@@ -90,8 +100,7 @@ def login(
             "USUARIO_SIN_PASSWORD",
             "Esa cuenta todavía no tiene contraseña.",
             sugerencia=(
-                "Un socio la habilita con: python -m app.cli establecer-password "
-                f"{fila.email}"
+                f"Un socio la habilita con: python -m app.cli establecer-password {fila.email}"
             ),
         )
 
@@ -188,10 +197,7 @@ def cambiar_password(sesion: Session, usuario_id: int, actual: str, nueva: str) 
         raise ErrorNegocio("PASSWORD_DEBIL", str(exc), campo="password_nueva") from exc
 
     sesion.execute(
-        text(
-            "UPDATE usuarios SET password_hash = :h, debe_cambiar_password = FALSE "
-            "WHERE id = :i"
-        ),
+        text("UPDATE usuarios SET password_hash = :h, debe_cambiar_password = FALSE WHERE id = :i"),
         {"h": nuevo_hash, "i": usuario_id},
     )
     # Cambiar la clave cierra las otras sesiones: si se cambio porque alguien mas la

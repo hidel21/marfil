@@ -27,6 +27,7 @@ Revises: 0002
 Create Date: 2026-08-22
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -66,8 +67,7 @@ def upgrade() -> None:
 
     # Los socios que tambien compran.
     claves_socios = {
-        clave_nombre(n)
-        for (n,) in conexion.execute(sa.text("SELECT nombre FROM socios"))
+        clave_nombre(n) for (n,) in conexion.execute(sa.text("SELECT nombre FROM socios"))
     }
 
     # Prefijos: candidatos a revision manual, nunca a fusion automatica.

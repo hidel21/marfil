@@ -39,9 +39,11 @@ def test_se_siembra_un_solo_usuario_el_superadmin(conn):
 
 def test_los_socios_sin_cuenta_quedan_listados(conn):
     """Es la lista de trabajo del superadmin: a quién le falta el perfil."""
-    pendientes = conn.execute(
-        text("SELECT nombre FROM socios WHERE usuario_id IS NULL ORDER BY nombre")
-    ).scalars().all()
+    pendientes = (
+        conn.execute(text("SELECT nombre FROM socios WHERE usuario_id IS NULL ORDER BY nombre"))
+        .scalars()
+        .all()
+    )
     assert pendientes == ["Gregor", "Gregory"]
 
 
@@ -141,9 +143,12 @@ def test_el_trigger_llena_la_clave_sin_que_nadie_se_acuerde(conn):
             "VALUES ('Perfume Ñandú Ácido', 0,0,0,0,0,0,0,0) RETURNING id"
         )
     ).scalar_one()
-    assert conn.execute(
-        text("SELECT nombre_normalizado FROM productos WHERE id = :i"), {"i": pid}
-    ).scalar() == "perfumenanduacido"
+    assert (
+        conn.execute(
+            text("SELECT nombre_normalizado FROM productos WHERE id = :i"), {"i": pid}
+        ).scalar()
+        == "perfumenanduacido"
+    )
 
 
 def test_la_clave_sigue_al_nombre_cuando_se_corrige(conn):
@@ -154,12 +159,13 @@ def test_la_clave_sigue_al_nombre_cuando_se_corrige(conn):
             "VALUES ('Nombre Viejo', 0,0,0,0,0,0,0,0) RETURNING id"
         )
     ).scalar_one()
-    conn.execute(
-        text("UPDATE productos SET nombre = 'Nombre Nuevo' WHERE id = :i"), {"i": pid}
+    conn.execute(text("UPDATE productos SET nombre = 'Nombre Nuevo' WHERE id = :i"), {"i": pid})
+    assert (
+        conn.execute(
+            text("SELECT nombre_normalizado FROM productos WHERE id = :i"), {"i": pid}
+        ).scalar()
+        == "nombrenuevo"
     )
-    assert conn.execute(
-        text("SELECT nombre_normalizado FROM productos WHERE id = :i"), {"i": pid}
-    ).scalar() == "nombrenuevo"
 
 
 # -------------------------------------------------------------------- 0004 reglas
@@ -188,9 +194,7 @@ def test_el_mismo_nombre_si_puede_estar_en_las_dos_listas(conn):
 
 def test_costo_desconocido_es_null_y_no_cero(conn):
     """0-como-desconocido es lo que hacía que la lista mostrara $0,00 como precio."""
-    con_cero = conn.execute(
-        text("SELECT count(*) FROM productos WHERE costo_usd = 0")
-    ).scalar()
+    con_cero = conn.execute(text("SELECT count(*) FROM productos WHERE costo_usd = 0")).scalar()
     assert con_cero == 0, "ningún producto debería tener costo_usd = 0: o hay costo, o es NULL"
 
 
@@ -215,9 +219,7 @@ def test_un_producto_fusionado_exige_destino(conn):
         )
     ).scalar_one()
     with pytest.raises(IntegrityError):
-        conn.execute(
-            text("UPDATE productos SET estado = 'fusionado' WHERE id = :i"), {"i": pid}
-        )
+        conn.execute(text("UPDATE productos SET estado = 'fusionado' WHERE id = :i"), {"i": pid})
 
 
 # ------------------------------------------------------------------ 0003 clientes
@@ -249,13 +251,16 @@ def test_un_alias_extra_tambien_se_normaliza(conn):
         ),
         {"c": cid},
     )
-    assert conn.execute(
-        text(
-            "SELECT alias_normalizado FROM clientes_alias "
-            "WHERE cliente_id = :c AND origen = 'test'"
-        ),
-        {"c": cid},
-    ).scalar() == "cristihan"
+    assert (
+        conn.execute(
+            text(
+                "SELECT alias_normalizado FROM clientes_alias "
+                "WHERE cliente_id = :c AND origen = 'test'"
+            ),
+            {"c": cid},
+        ).scalar()
+        == "cristihan"
+    )
 
 
 def test_un_alias_no_puede_apuntar_a_dos_clientes(conn):

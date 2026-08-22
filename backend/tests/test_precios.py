@@ -73,12 +73,15 @@ def test_la_politica_ofrece_el_nivel_alternativo(conn, sesion):
 
 def test_los_originales_se_calculan_por_descuento(conn, sesion):
     p = _producto(conn, "Original Test", original=50, es_original=True)
-    assert precio_politica(sesion, p, moneda_cotizacion="USD",
-                           nivel="publico").precio_usd == Decimal("50.00")
-    assert precio_politica(sesion, p, moneda_cotizacion="USD",
-                           nivel="team").precio_usd == Decimal("37.50"), "50 x 0,75"
-    assert precio_politica(sesion, p, moneda_cotizacion="USD",
-                           nivel="revendedor").precio_usd == Decimal("42.50"), "50 x 0,85"
+    assert precio_politica(
+        sesion, p, moneda_cotizacion="USD", nivel="publico"
+    ).precio_usd == Decimal("50.00")
+    assert precio_politica(sesion, p, moneda_cotizacion="USD", nivel="team").precio_usd == Decimal(
+        "37.50"
+    ), "50 x 0,75"
+    assert precio_politica(
+        sesion, p, moneda_cotizacion="USD", nivel="revendedor"
+    ).precio_usd == Decimal("42.50"), "50 x 0,85"
 
 
 def test_sin_costo_no_hay_precio_calculable(conn, sesion):

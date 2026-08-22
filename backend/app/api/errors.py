@@ -133,8 +133,7 @@ def registrar_manejadores(app) -> None:  # noqa: ANN001
         if "uq_pagos_referencia" in detalle:
             codigo = CODIGO_REFERENCIA_DUPLICADA
             mensaje = (
-                "Esa referencia, con ese monto y esa fecha, ya está registrada. "
-                "¿Es el mismo pago?"
+                "Esa referencia, con ese monto y esa fecha, ya está registrada. ¿Es el mismo pago?"
             )
         elif "uq_recordatorios_dia" in detalle:
             codigo = CODIGO_RECORDATORIO_EN_COOLDOWN
@@ -174,7 +173,8 @@ def registrar_manejadores(app) -> None:  # noqa: ANN001
                     "errores": [
                         {
                             "campo": ".".join(
-                                str(p) for p in e.get("loc", ())
+                                str(p)
+                                for p in e.get("loc", ())
                                 if p not in ("body", "query", "path")
                             ),
                             "mensaje": e.get("msg", "").removeprefix("Value error, "),

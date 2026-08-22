@@ -77,9 +77,7 @@ class Cotizacion:
     plazo_dias: int
 
 
-def cotizar(
-    sesion: Session, entrada: VentaEntrada, *, es_admin: bool
-) -> Cotizacion:
+def cotizar(sesion: Session, entrada: VentaEntrada, *, es_admin: bool) -> Cotizacion:
     """Evalua la venta sin escribir nada.
 
     La misma funcion la usa `crear`, asi que la UI no puede mostrar un numero que la
@@ -108,7 +106,8 @@ def cotizar(
     for indice, linea in enumerate(entrada.lineas):
         if linea.cantidad < 1:
             raise ErrorNegocio(
-                "CANTIDAD_INVALIDA", "La cantidad tiene que ser al menos 1.",
+                "CANTIDAD_INVALIDA",
+                "La cantidad tiene que ser al menos 1.",
                 campo=f"lineas.{indice}.cantidad",
             )
 
@@ -175,8 +174,7 @@ def cotizar(
                         "codigo": a.codigo,
                         "mensaje": a.mensaje,
                         "bloqueante": (
-                            a.bloqueante
-                            and not (motivo and (not a.exige_admin or es_admin))
+                            a.bloqueante and not (motivo and (not a.exige_admin or es_admin))
                         ),
                         "exige_admin": a.exige_admin,
                         "sugerencia": a.sugerencia,
@@ -209,10 +207,7 @@ def crear(sesion: Session, entrada: VentaEntrada, *, usuario_id: int, es_admin: 
 
     if cotizacion.bloqueada:
         bloqueos = [
-            a
-            for linea in cotizacion.lineas
-            for a in linea["advertencias"]
-            if a["bloqueante"]
+            a for linea in cotizacion.lineas for a in linea["advertencias"] if a["bloqueante"]
         ]
         primero = bloqueos[0]
         raise ErrorNegocio(
@@ -224,9 +219,7 @@ def crear(sesion: Session, entrada: VentaEntrada, *, usuario_id: int, es_admin: 
 
     if any(linea["sobreventa"] for linea in cotizacion.lineas) and not entrada.permitir_sobreventa:
         sobrevendidas = [linea for linea in cotizacion.lineas if linea["sobreventa"]]
-        faltantes = ", ".join(
-            f"{x['producto']} (hay {x['stock_actual']})" for x in sobrevendidas
-        )
+        faltantes = ", ".join(f"{x['producto']} (hay {x['stock_actual']})" for x in sobrevendidas)
         raise ErrorNegocio(
             "SOBREVENTA_SIN_CONFIRMAR",
             f"No hay stock suficiente para {faltantes}.",
@@ -300,10 +293,7 @@ def crear(sesion: Session, entrada: VentaEntrada, *, usuario_id: int, es_admin: 
         # leer y escribir.
         if not entrada.permitir_sobreventa:
             actualizadas = sesion.execute(
-                text(
-                    "UPDATE productos SET stock = stock - :c "
-                    "WHERE id = :i AND stock >= :c"
-                ),
+                text("UPDATE productos SET stock = stock - :c WHERE id = :i AND stock >= :c"),
                 {"c": linea["cantidad"], "i": linea["producto_id"]},
             ).rowcount
             if actualizadas != 1:
@@ -362,8 +352,12 @@ def crear(sesion: Session, entrada: VentaEntrada, *, usuario_id: int, es_admin: 
                     "INSERT INTO cuotas (venta_id, numero, fecha_vencimiento, monto_usd, "
                     "implicita) VALUES (:v, :n, :f, :m, FALSE)"
                 ),
-                {"v": venta_id, "n": cuota.numero, "f": cuota.fecha_vencimiento,
-                 "m": cuota.monto_usd},
+                {
+                    "v": venta_id,
+                    "n": cuota.numero,
+                    "f": cuota.fecha_vencimiento,
+                    "m": cuota.monto_usd,
+                },
             )
 
     return venta_id

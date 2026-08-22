@@ -139,9 +139,7 @@ class PagoCompra(Base):
     tasa_aplicada: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
     canal: Mapped[CanalPago | None] = mapped_column(enum_pg(CanalPago))
     referencia: Mapped[str | None] = mapped_column(String(64))
-    registrado_por_usuario_id: Mapped[int | None] = mapped_column(
-        ForeignKey("usuarios.id")
-    )
+    registrado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

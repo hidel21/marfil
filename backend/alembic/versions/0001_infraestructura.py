@@ -32,6 +32,7 @@ Revises: 0000
 Create Date: 2026-08-22
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -163,9 +164,7 @@ def upgrade() -> None:
     # en CI, en staging o en la maquina de otro socio, 0001 arrancaria renombrando
     # `filas_excel` y fallaria donde esa tabla nunca existio. Con esto los dos
     # caminos —base viva y base vacia— convergen en el mismo esquema.
-    if not conexion.execute(
-        sa.text("SELECT to_regclass('public.ventas') IS NOT NULL")
-    ).scalar():
+    if not conexion.execute(sa.text("SELECT to_regclass('public.ventas') IS NOT NULL")).scalar():
         op.execute(leer_sql("esquema_legacy"))
 
     # 1. Extensiones
@@ -192,9 +191,7 @@ def upgrade() -> None:
         sa.text("SELECT to_regclass('public.importaciones_excel') IS NOT NULL")
     ).scalar():
         op.rename_table("importaciones_excel", "importaciones")
-    if conexion.execute(
-        sa.text("SELECT to_regclass('public.filas_excel') IS NOT NULL")
-    ).scalar():
+    if conexion.execute(sa.text("SELECT to_regclass('public.filas_excel') IS NOT NULL")).scalar():
         op.rename_table("filas_excel", "filas_importadas")
         op.alter_column("filas_importadas", "pestaña", new_column_name="hoja")
 
@@ -210,9 +207,7 @@ def upgrade() -> None:
         sa.Column("estado", sa.String(16), nullable=False, server_default="archivado"),
     )
     op.add_column("importaciones", sa.Column("importado_por_usuario_id", sa.Integer()))
-    op.alter_column(
-        "importaciones", "archivo_hash", type_=sa.String(64), existing_nullable=False
-    )
+    op.alter_column("importaciones", "archivo_hash", type_=sa.String(64), existing_nullable=False)
     op.create_unique_constraint(
         "uq_filas_importadas_ubicacion",
         "filas_importadas",
@@ -236,9 +231,7 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
         ),
     )
-    op.alter_column(
-        "socios", "capital_invertido", type_=sa.Numeric(14, 2), existing_nullable=False
-    )
+    op.alter_column("socios", "capital_invertido", type_=sa.Numeric(14, 2), existing_nullable=False)
     op.create_unique_constraint("uq_socios_usuario_id", "socios", ["usuario_id"])
     op.create_foreign_key(
         "fk_socios_usuario_id_usuarios", "socios", "usuarios", ["usuario_id"], ["id"]
@@ -354,9 +347,7 @@ def downgrade() -> None:
     ).scalar():
         op.alter_column("filas_importadas", "hoja", new_column_name="pestaña")
         op.rename_table("filas_importadas", "filas_excel")
-    if conexion.execute(
-        sa.text("SELECT to_regclass('public.importaciones') IS NOT NULL")
-    ).scalar():
+    if conexion.execute(sa.text("SELECT to_regclass('public.importaciones') IS NOT NULL")).scalar():
         op.rename_table("importaciones", "importaciones_excel")
 
     # Recrear las dos legacy que 0001 soltó, con su forma original, para que

@@ -6,11 +6,17 @@ from app.api.v1 import (
     ajustes,
     auditoria,
     auth,
+    automatizaciones,
     clientes,
     cobranza,
+    compras,
+    dashboard,
+    finanzas,
+    gastos,
     pagos,
     productos,
     recordatorios,
+    reportes,
     usuarios,
     ventas,
 )
@@ -18,15 +24,21 @@ from app.api.v1 import (
 router = APIRouter(prefix="/api/v1")
 for modulo in (
     auth,
+    dashboard,
     usuarios,
     clientes,
     productos,
     ventas,
     pagos,
+    compras,
+    gastos,
+    finanzas,
     cobranza,
     recordatorios,
     auditoria,
     ajustes,
+    automatizaciones,
+    reportes,
 ):
     router.include_router(modulo.router)
 

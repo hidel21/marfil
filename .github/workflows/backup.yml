@@ -1,0 +1,27 @@
+name: Respaldo cifrado
+
+on:
+  schedule:
+    - cron: "40 2 * * *"
+      timezone: "America/Caracas"
+  workflow_dispatch:
+
+jobs:
+  respaldo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exportar PostgreSQL
+        env:
+          DATABASE_URL: ${{ secrets.MARFIL_DATABASE_URL }}
+        run: docker run --rm -e DATABASE_URL -v "$PWD:/backup" postgres:17 sh -c 'pg_dump "$DATABASE_URL" --format=custom --file=/backup/marfil.dump'
+      - name: Cifrar
+        env:
+          BACKUP_KEY: ${{ secrets.MARFIL_BACKUP_KEY }}
+        run: openssl enc -aes-256-cbc -salt -pbkdf2 -in marfil.dump -out marfil.dump.enc -pass env:BACKUP_KEY
+      - name: Publicar respaldo privado
+        uses: actions/upload-artifact@v4
+        with:
+          name: marfil-${{ github.run_id }}
+          path: marfil.dump.enc
+          retention-days: 14
+          if-no-files-found: error

@@ -101,9 +101,7 @@ class DatosPago:
             )
         orden = ("titular", "banco", "codigo_banco", "documento", "telefono")
         lineas = [
-            f"- {ETIQUETAS_DATOS_PAGO[c]}: {self.campos[c]}"
-            for c in orden
-            if self.campos.get(c)
+            f"- {ETIQUETAS_DATOS_PAGO[c]}: {self.campos[c]}" for c in orden if self.campos.get(c)
         ]
         return "\n".join(lineas)
 

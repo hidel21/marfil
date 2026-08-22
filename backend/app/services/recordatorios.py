@@ -108,10 +108,7 @@ def plantilla_para(semaforo: str) -> str:
 
 def _tasa_del_dia(sesion: Session) -> tuple[Decimal | None, Any]:
     fila = sesion.execute(
-        text(
-            "SELECT valor, fecha FROM tasas_cambio WHERE tipo = 'bcv' "
-            "ORDER BY fecha DESC LIMIT 1"
-        )
+        text("SELECT valor, fecha FROM tasas_cambio WHERE tipo = 'bcv' ORDER BY fecha DESC LIMIT 1")
     ).one_or_none()
     return (fila.valor, fila.fecha) if fila else (None, None)
 
@@ -209,8 +206,7 @@ def preparar_lote(
         clave = plantilla_clave or plantilla_para(c["semaforo"])
         plantilla = sesion.execute(
             text(
-                "SELECT clave, version, cuerpo FROM plantillas_mensaje "
-                "WHERE clave = :k AND activa"
+                "SELECT clave, version, cuerpo FROM plantillas_mensaje WHERE clave = :k AND activa"
             ),
             {"k": clave},
         ).one_or_none()

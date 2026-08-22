@@ -43,6 +43,7 @@ Revises: 0004
 Create Date: 2026-08-22
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -63,8 +64,17 @@ FECHA_ERRONEA = "2026-02-08"
 FECHA_CORREGIDA = "2026-08-02"
 
 COLUMNAS_LEGACY_VENTAS = (
-    "cliente", "vendedor", "producto", "cantidad", "precio_venta", "costo",
-    "ganancia", "moneda", "deuda", "estatus", "total",
+    "cliente",
+    "vendedor",
+    "producto",
+    "cantidad",
+    "precio_venta",
+    "costo",
+    "ganancia",
+    "moneda",
+    "deuda",
+    "estatus",
+    "total",
 )
 COLUMNAS_LEGACY_PAGOS = ("cliente", "producto", "monto_bs", "tasa_bcv", "nro_cuota")
 
@@ -170,9 +180,13 @@ def upgrade() -> None:
 
     # ---------------------------------------------- 3. las 8 fechas mal tecleadas
     if hay_datos:
-        afectadas = conexion.execute(
-            sa.text("SELECT id FROM ventas WHERE fecha = :mala"), {"mala": FECHA_ERRONEA}
-        ).scalars().all()
+        afectadas = (
+            conexion.execute(
+                sa.text("SELECT id FROM ventas WHERE fecha = :mala"), {"mala": FECHA_ERRONEA}
+            )
+            .scalars()
+            .all()
+        )
         if afectadas:
             conexion.execute(
                 sa.text("UPDATE ventas SET fecha = :buena WHERE fecha = :mala"),
@@ -244,9 +258,7 @@ def upgrade() -> None:
             )
         )
         # El testigo de fidelidad, antes de que ningun trigger toque nada.
-        conexion.execute(
-            sa.text("UPDATE ventas SET saldo_congelado_migracion = deuda")
-        )
+        conexion.execute(sa.text("UPDATE ventas SET saldo_congelado_migracion = deuda"))
 
     # ------------------------------------------------------ 5. constraints en ventas
     op.alter_column("ventas", "codigo", nullable=False)
@@ -310,12 +322,16 @@ def upgrade() -> None:
             )
         ).scalar_one()
         if sin_linea:
-            faltantes = conexion.execute(
-                sa.text(
-                    "SELECT DISTINCT v.producto FROM ventas v WHERE v.producto IS NOT NULL "
-                    "AND NOT EXISTS (SELECT 1 FROM venta_items i WHERE i.venta_id = v.id)"
+            faltantes = (
+                conexion.execute(
+                    sa.text(
+                        "SELECT DISTINCT v.producto FROM ventas v WHERE v.producto IS NOT NULL "
+                        "AND NOT EXISTS (SELECT 1 FROM venta_items i WHERE i.venta_id = v.id)"
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             raise RuntimeError(
                 f"{sin_linea} venta(s) sin linea porque su producto no resuelve: "
                 f"{faltantes}. Agregá el alias en backend/seeds/alias_productos.yaml."
@@ -476,9 +492,7 @@ def upgrade() -> None:
                 "WHERE i.venta_id = v.id"
             )
         )
-        conexion.execute(
-            sa.text("SELECT fn_recalcular_saldo_venta(id) FROM ventas")
-        )
+        conexion.execute(sa.text("SELECT fn_recalcular_saldo_venta(id) FROM ventas"))
 
         # La cuota implicita del plazo por defecto: un solo camino de codigo para la
         # antiguedad, con plan y sin plan.
@@ -638,13 +652,29 @@ def downgrade() -> None:
     ):
         op.drop_constraint(nombre, "pagos", type_="check")
     for indice in (
-        "ix_pagos_cuota", "ix_pagos_fecha", "ix_pagos_venta_fecha", "uq_pagos_referencia",
+        "ix_pagos_cuota",
+        "ix_pagos_fecha",
+        "ix_pagos_venta_fecha",
+        "uq_pagos_referencia",
     ):
         op.drop_index(indice, table_name="pagos")
     for columna in (
-        "created_at", "notas", "comprobante_url", "registrado_por_usuario_id", "motivo",
-        "anula_pago_id", "nro_bloque", "canal", "confianza_tasa", "origen_tasa",
-        "tasa_id", "tasa_aplicada", "monto_moneda", "moneda", "tipo", "cuota_id",
+        "created_at",
+        "notas",
+        "comprobante_url",
+        "registrado_por_usuario_id",
+        "motivo",
+        "anula_pago_id",
+        "nro_bloque",
+        "canal",
+        "confianza_tasa",
+        "origen_tasa",
+        "tasa_id",
+        "tasa_aplicada",
+        "monto_moneda",
+        "moneda",
+        "tipo",
+        "cuota_id",
     ):
         op.drop_column("pagos", columna)
     op.alter_column("pagos", "tasa_bcv", type_=sa.Numeric(10, 2), existing_nullable=False)
@@ -668,11 +698,26 @@ def downgrade() -> None:
         op.drop_index(indice, table_name="ventas")
 
     for columna in (
-        "updated_at", "created_at", "creado_por_usuario_id", "saldo_congelado_migracion",
-        "motivo_anulacion", "anulada_por_usuario_id", "anulada_at", "notas",
-        "tiene_plan_cuotas", "fecha_vencimiento", "plazo_dias", "estado_cobro",
-        "saldo_usd", "costo_usd", "total_usd", "nivel_precio_aplicado",
-        "moneda_cotizacion", "vendedor_usuario_id", "cliente_id", "codigo",
+        "updated_at",
+        "created_at",
+        "creado_por_usuario_id",
+        "saldo_congelado_migracion",
+        "motivo_anulacion",
+        "anulada_por_usuario_id",
+        "anulada_at",
+        "notas",
+        "tiene_plan_cuotas",
+        "fecha_vencimiento",
+        "plazo_dias",
+        "estado_cobro",
+        "saldo_usd",
+        "costo_usd",
+        "total_usd",
+        "nivel_precio_aplicado",
+        "moneda_cotizacion",
+        "vendedor_usuario_id",
+        "cliente_id",
+        "codigo",
     ):
         op.drop_column("ventas", columna)
 

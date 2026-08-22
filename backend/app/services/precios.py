@@ -238,9 +238,11 @@ def evaluar_precio(
         )
         if mas_cerca_del_otro:
             diferencia = cuantizar(politica.precio_usd - cobrado)
-            nombre_declarado = "BCV" if str(
-                getattr(moneda_cotizacion, "value", moneda_cotizacion)
-            ) == Moneda.VES.value else "divisa/USDT"
+            nombre_declarado = (
+                "BCV"
+                if str(getattr(moneda_cotizacion, "value", moneda_cotizacion)) == Moneda.VES.value
+                else "divisa/USDT"
+            )
             nombre_otro = "divisa/USDT" if nombre_declarado == "BCV" else "BCV"
             advertencias.append(
                 Advertencia(

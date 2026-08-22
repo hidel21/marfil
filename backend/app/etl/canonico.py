@@ -89,9 +89,7 @@ def es_probable_prefijo(clave_corta: str, clave_larga: str) -> bool:
     esto solo marca; decidir es del dueno.
     """
     return (
-        len(clave_corta) >= 4
-        and clave_corta != clave_larga
-        and clave_larga.startswith(clave_corta)
+        len(clave_corta) >= 4 and clave_corta != clave_larga and clave_larga.startswith(clave_corta)
     )
 
 

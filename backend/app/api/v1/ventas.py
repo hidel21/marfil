@@ -112,9 +112,7 @@ def cotizar(datos: VentaEntrada, db: SesionDb, actual: AdminOVendedor):
 
 
 @router.post("", status_code=201)
-def crear(
-    datos: VentaEntrada, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir
-):
+def crear(datos: VentaEntrada, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir):
     venta_id = svc.crear(
         db, _a_entrada(datos, actual.id), usuario_id=actual.id, es_admin=actual.es_admin
     )

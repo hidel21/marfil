@@ -114,9 +114,7 @@ class Pago(Base):
         ForeignKey("pagos.id", name="fk_pagos_anula_pago_id_pagos")
     )
     motivo: Mapped[str | None] = mapped_column(Text)
-    registrado_por_usuario_id: Mapped[int | None] = mapped_column(
-        ForeignKey("usuarios.id")
-    )
+    registrado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
     notas: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

@@ -253,9 +253,7 @@ def registrar(
     ).scalar_one()
 
     nueva = sesion.execute(
-        text(
-            "SELECT saldo_usd, estado_cobro::text AS estado_cobro FROM ventas WHERE id = :i"
-        ),
+        text("SELECT saldo_usd, estado_cobro::text AS estado_cobro FROM ventas WHERE id = :i"),
         {"i": venta_id},
     ).one()
     cuotas = sesion.execute(
@@ -290,9 +288,7 @@ def registrar(
     }
 
 
-def reversar(
-    sesion: Session, *, pago_id: int, motivo: str, usuario_id: int | None = None
-) -> int:
+def reversar(sesion: Session, *, pago_id: int, motivo: str, usuario_id: int | None = None) -> int:
     """Anula un pago con una fila negativa. El original no se toca.
 
     Es lo que permite corregir sin reescribir la historia: el trigger de

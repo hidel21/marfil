@@ -108,9 +108,7 @@ def crear(datos: UsuarioEntrada, db: SesionDb, actual: SoloAdmin, _: PuedeEscrib
             campo="cliente_id",
             sugerencia="Buscá el cliente en la lista y volvé a intentar.",
         )
-    if db.execute(
-        text("SELECT 1 FROM usuarios WHERE email = :e"), {"e": datos.email}
-    ).scalar():
+    if db.execute(text("SELECT 1 FROM usuarios WHERE email = :e"), {"e": datos.email}).scalar():
         raise Conflicto(
             "EMAIL_YA_USADO",
             f"Ya hay un usuario con el correo {datos.email}.",
@@ -208,10 +206,7 @@ def activar(datos: ActivacionEntrada, db: SesionDb, _: PuedeEscribir):
         raise ErrorNegocio("PASSWORD_DEBIL", str(exc), campo="password_nueva") from exc
 
     db.execute(
-        text(
-            "UPDATE usuarios SET password_hash = :h, debe_cambiar_password = FALSE "
-            "WHERE id = :i"
-        ),
+        text("UPDATE usuarios SET password_hash = :h, debe_cambiar_password = FALSE WHERE id = :i"),
         {"h": nuevo_hash, "i": fila.usuario_id},
     )
     # El codigo se consume, y con el cualquier otro pendiente del mismo usuario.
@@ -226,9 +221,7 @@ def activar(datos: ActivacionEntrada, db: SesionDb, _: PuedeEscribir):
 
 
 @router.post("/{usuario_id}/reactivar-codigo", response_model=UsuarioCreado)
-def reactivar_codigo(
-    usuario_id: int, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir
-):
+def reactivar_codigo(usuario_id: int, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir):
     """Genera un codigo nuevo, por si el anterior vencio o se perdio."""
     del actual
     usuario = db.execute(
@@ -262,9 +255,7 @@ def reactivar_codigo(
         rol=usuario.rol,
         codigo_activacion=codigo,
         expira_at=expira,
-        instrucciones=(
-            f"Código nuevo para {usuario.nombre}. El anterior quedó anulado."
-        ),
+        instrucciones=(f"Código nuevo para {usuario.nombre}. El anterior quedó anulado."),
     )
 
 

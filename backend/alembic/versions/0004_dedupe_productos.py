@@ -33,6 +33,7 @@ Revises: 0003
 Create Date: 2026-08-22
 
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -487,10 +488,21 @@ def downgrade() -> None:
     op.execute("DELETE FROM productos WHERE origen_alta = 'import'")
 
     for columna in (
-        "updated_at", "notas", "revisado_por_usuario_id", "revisado_at",
-        "creado_por_usuario_id", "origen_alta", "fusionado_en_producto_id", "estado",
-        "stock_minimo", "precio_original_usd", "costo_usd", "linea", "modelo_precio",
-        "es_original", "nombre_normalizado",
+        "updated_at",
+        "notas",
+        "revisado_por_usuario_id",
+        "revisado_at",
+        "creado_por_usuario_id",
+        "origen_alta",
+        "fusionado_en_producto_id",
+        "estado",
+        "stock_minimo",
+        "precio_original_usd",
+        "costo_usd",
+        "linea",
+        "modelo_precio",
+        "es_original",
+        "nombre_normalizado",
     ):
         op.drop_column("productos", columna)
 

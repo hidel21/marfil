@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: marfil-sistema
+    runtime: docker
+    plan: free
+    region: virginia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/salud
+    autoDeployTrigger: commit
+    envVars:
+      - key: ENTORNO
+        value: produccion
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JOB_SECRET
+        generateValue: true
+      - key: ADMIN_INITIAL_PASSWORD
+        sync: false
+      - key: CORS_ORIGENES
+        value: https://marfil-sistema.onrender.com
+      - key: JOBS_HABILITADOS
+        value: "false"
+      - key: ZONA_HORARIA
+        value: America/Caracas

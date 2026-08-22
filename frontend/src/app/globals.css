@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-fondo: #f6f3e9;
+  --color-superficie: #fffdf8;
+  --color-borde: #ddd6c6;
+  --color-texto: #30353a;
+  --color-texto-suave: #6f736f;
+
+  --color-marca: #343a40;
+  --color-marca-suave: #ece7d8;
+  --color-acento: #a98750;
+  --color-acento-suave: #f4ecdc;
+  --color-navegacion: #2d343a;
+
+  --color-critico: #c0392b;
+  --color-critico-suave: #fdedea;
+  --color-ambar: #a8720d;
+  --color-ambar-suave: #fdf5e3;
+  --color-ok: #1e7a4f;
+  --color-ok-suave: #eaf7f0;
+}
+
+html {
+  color-scheme: light;
+  background: var(--color-fondo);
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-fondo);
+  color: var(--color-texto);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-width: 320px;
+  background-image:
+    radial-gradient(circle at 12% 0%, rgb(255 253 248 / 0.95), transparent 32rem),
+    linear-gradient(180deg, rgb(255 255 255 / 0.26), transparent 28rem);
+}
+
+::selection {
+  background: var(--color-acento-suave);
+  color: var(--color-texto);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-acento);
+  outline-offset: 2px;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.marca-serif {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: 0.025em;
+}
+
+.safe-bottom {
+  padding-bottom: max(5.75rem, calc(4.75rem + env(safe-area-inset-bottom)));
+}
+
+@media (min-width: 768px) {
+  .safe-bottom {
+    padding-bottom: 2rem;
+  }
+}
+
+/* Los montos en tabular para que las columnas de dinero se alineen entre filas. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

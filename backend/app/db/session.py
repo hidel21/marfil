@@ -97,9 +97,7 @@ def fijar_contexto(
         ("app.escritor", escritor),
     ):
         if valor is not None:
-            sesion.execute(
-                text("SELECT set_config(:k, :v, true)"), {"k": clave, "v": str(valor)}
-            )
+            sesion.execute(text("SELECT set_config(:k, :v, true)"), {"k": clave, "v": str(valor)})
 
 
 def get_db() -> Iterator[Session]:

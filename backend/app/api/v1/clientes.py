@@ -81,9 +81,7 @@ class ClienteEntrada(BaseModel):
 def crear(datos: ClienteEntrada, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir):
     clave = clave_nombre(datos.nombre)
     if db.execute(
-        text(
-            "SELECT 1 FROM clientes WHERE nombre_normalizado = :k AND estado <> 'fusionado'"
-        ),
+        text("SELECT 1 FROM clientes WHERE nombre_normalizado = :k AND estado <> 'fusionado'"),
         {"k": clave},
     ).scalar():
         raise Conflicto(
@@ -99,7 +97,9 @@ def crear(datos: ClienteEntrada, db: SesionDb, actual: AdminOVendedor, _: PuedeE
             telefono = telefono_e164(datos.telefono)
         except TelefonoInvalido as exc:
             raise ErrorNegocio(
-                "TELEFONO_INVALIDO", str(exc), campo="telefono",
+                "TELEFONO_INVALIDO",
+                str(exc),
+                campo="telefono",
                 sugerencia="Un móvil venezolano: 0412, 0414, 0416, 0424 o 0426.",
             ) from exc
 
@@ -151,9 +151,7 @@ def guardar_telefono(
         ) from exc
 
     afectadas = db.execute(
-        text(
-            "UPDATE clientes SET telefono_e164 = :t WHERE id = :i AND estado = 'activo'"
-        ),
+        text("UPDATE clientes SET telefono_e164 = :t WHERE id = :i AND estado = 'activo'"),
         {"t": normalizado, "i": cliente_id},
     ).rowcount
     if not afectadas:

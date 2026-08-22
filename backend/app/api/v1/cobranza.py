@@ -106,9 +106,7 @@ def listar(
         sin_abonos=sin_abonos,
         sin_telefono=sin_telefono,
         incluir_socios=incluir_socios,
-        vendedor_usuario_id=(
-            ambito.usuario.id if ambito.usuario.es_vendedor else None
-        ),
+        vendedor_usuario_id=(ambito.usuario.id if ambito.usuario.es_vendedor else None),
     )
 
 

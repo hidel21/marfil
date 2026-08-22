@@ -23,10 +23,24 @@ pytestmark = pytest.mark.usefixtures("engine")
 
 # --------------------------------------------------------------------- estructura
 TABLAS_NUEVAS = (
-    "usuarios", "refresh_tokens", "clientes", "clientes_alias", "productos_alias",
-    "movimientos_stock", "venta_items", "cuotas", "parametros_precio", "configuracion",
-    "tasas_cambio", "auditoria", "conciliaciones", "jobs_ejecuciones",
-    "plantillas_mensaje", "plantillas_version", "recordatorios", "enlaces_importacion",
+    "usuarios",
+    "refresh_tokens",
+    "clientes",
+    "clientes_alias",
+    "productos_alias",
+    "movimientos_stock",
+    "venta_items",
+    "cuotas",
+    "parametros_precio",
+    "configuracion",
+    "tasas_cambio",
+    "auditoria",
+    "conciliaciones",
+    "jobs_ejecuciones",
+    "plantillas_mensaje",
+    "plantillas_version",
+    "recordatorios",
+    "enlaces_importacion",
 )
 
 
@@ -37,13 +51,14 @@ def test_existen_las_tablas_nuevas(conn, tabla):
     ).scalar()
 
 
-@pytest.mark.parametrize(
-    "ext", ["citext", "unaccent", "pg_trgm", "btree_gist", "pgcrypto"]
-)
+@pytest.mark.parametrize("ext", ["citext", "unaccent", "pg_trgm", "btree_gist", "pgcrypto"])
 def test_extensiones_instaladas(conn, ext):
-    assert conn.execute(
-        text("SELECT count(*) FROM pg_extension WHERE extname = :e"), {"e": ext}
-    ).scalar() == 1
+    assert (
+        conn.execute(
+            text("SELECT count(*) FROM pg_extension WHERE extname = :e"), {"e": ext}
+        ).scalar()
+        == 1
+    )
 
 
 def test_el_tercer_estado_de_cobro_existe():
@@ -67,12 +82,12 @@ def test_los_enums_son_nativos_de_postgres(conn):
 
 
 def test_estado_cobro_tiene_los_cuatro_valores(conn):
-    valores = conn.execute(
-        text("SELECT unnest(enum_range(NULL::estado_cobro))::text ORDER BY 1")
-    ).scalars().all()
-    assert sorted(valores) == [
-        "anulada", "pagada", "pendiente_parcial", "pendiente_sin_abonos"
-    ]
+    valores = (
+        conn.execute(text("SELECT unnest(enum_range(NULL::estado_cobro))::text ORDER BY 1"))
+        .scalars()
+        .all()
+    )
+    assert sorted(valores) == ["anulada", "pagada", "pendiente_parcial", "pendiente_sin_abonos"]
 
 
 def test_la_columna_no_ascii_desaparecio(conn):
@@ -127,19 +142,17 @@ def test_la_referencia_si_se_puede_corregir(conn):
     p = crear_pago_legacy(conn, v)
 
     conn.execute(text("UPDATE pagos SET referencia = 'CORREGIDA' WHERE id = :i"), {"i": p})
-    assert conn.execute(
-        text("SELECT referencia FROM pagos WHERE id = :i"), {"i": p}
-    ).scalar() == "CORREGIDA"
+    assert (
+        conn.execute(text("SELECT referencia FROM pagos WHERE id = :i"), {"i": p}).scalar()
+        == "CORREGIDA"
+    )
 
 
 # ----------------------------------------------------------------------- auditoría
 def test_toda_escritura_queda_auditada(conn):
     p = crear_producto_legacy(conn, "Auditado")
     filas = conn.execute(
-        text(
-            "SELECT accion, tabla FROM auditoria "
-            "WHERE tabla = 'productos' AND registro_id = :i"
-        ),
+        text("SELECT accion, tabla FROM auditoria WHERE tabla = 'productos' AND registro_id = :i"),
         {"i": str(p)},
     ).all()
     assert ("INSERT", "productos") in filas
@@ -210,8 +223,7 @@ def test_un_cliente_fusionado_libera_su_nombre(conn):
     b = crear_cliente(conn, "Ricardo Palacios")
     conn.execute(
         text(
-            "UPDATE clientes SET estado = 'fusionado', fusionado_en_cliente_id = :b "
-            "WHERE id = :a"
+            "UPDATE clientes SET estado = 'fusionado', fusionado_en_cliente_id = :b WHERE id = :a"
         ),
         {"a": a, "b": b},
     )
@@ -244,9 +256,7 @@ def test_el_stock_es_la_suma_de_sus_movimientos(conn):
             ),
             {"p": p, "t": tipo, "c": cantidad},
         )
-    assert conn.execute(
-        text("SELECT stock FROM productos WHERE id = :p"), {"p": p}
-    ).scalar() == 6
+    assert conn.execute(text("SELECT stock FROM productos WHERE id = :p"), {"p": p}).scalar() == 6
 
 
 def test_un_movimiento_de_cero_no_tiene_sentido(conn):

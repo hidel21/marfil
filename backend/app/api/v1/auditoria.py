@@ -19,8 +19,7 @@ def calidad(db: SesionDb, actual: SoloAdmin, incluir_resueltas: bool = False):
     del actual
     filtro = "" if incluir_resueltas else "WHERE visible"
     return [
-        dict(f._mapping)
-        for f in db.execute(text(f"SELECT * FROM v_calidad_datos {filtro}")).all()
+        dict(f._mapping) for f in db.execute(text(f"SELECT * FROM v_calidad_datos {filtro}")).all()
     ]
 
 
@@ -37,8 +36,11 @@ def conciliacion(
     sobre el que actua el negocio, el calculado es la verdad.
     """
     del actual
-    vista = {"ventas": "v_conciliacion_ventas", "pagos": "v_conciliacion_pagos",
-             "stock": "v_conciliacion_stock"}[tipo]
+    vista = {
+        "ventas": "v_conciliacion_ventas",
+        "pagos": "v_conciliacion_pagos",
+        "stock": "v_conciliacion_stock",
+    }[tipo]
     where = "WHERE NOT ok" if solo_descuadres else ""
     filas = [dict(f._mapping) for f in db.execute(text(f"SELECT * FROM {vista} {where}")).all()]
     total = db.execute(text(f"SELECT count(*) FROM {vista}")).scalar_one()
@@ -60,9 +62,10 @@ def fuga_precio(db: SesionDb, actual: SoloAdmin):
     responsable.
     """
     del actual
-    items = [dict(f._mapping) for f in db.execute(
-        text("SELECT * FROM v_fuga_precio ORDER BY fuga_usd DESC")
-    ).all()]
+    items = [
+        dict(f._mapping)
+        for f in db.execute(text("SELECT * FROM v_fuga_precio ORDER BY fuga_usd DESC")).all()
+    ]
     por_vendedor = [
         dict(f._mapping)
         for f in db.execute(
@@ -81,6 +84,34 @@ def fuga_precio(db: SesionDb, actual: SoloAdmin):
         "por_vendedor": por_vendedor,
         "items": items,
     }
+
+
+@router.get("/bajo-costo")
+def ventas_bajo_costo(db: SesionDb, actual: SoloAdmin):
+    """Líneas vendidas con pérdida, con el motivo que autorizó la excepción."""
+    del actual
+    filas = (
+        db.execute(
+            text(
+                """
+            SELECT v.codigo AS venta, v.fecha, c.nombre AS cliente, u.nombre AS vendedor,
+                   i.descripcion_libre AS producto, i.cantidad, i.precio_unitario_usd,
+                   i.costo_unitario_usd,
+                   (i.costo_unitario_usd - i.precio_unitario_usd) * i.cantidad
+                     AS perdida_usd,
+                   i.motivo_desviacion
+              FROM venta_items i JOIN ventas v ON v.id = i.venta_id
+              JOIN clientes c ON c.id = v.cliente_id
+              JOIN usuarios u ON u.id = v.vendedor_usuario_id
+             WHERE i.precio_unitario_usd < i.costo_unitario_usd
+             ORDER BY perdida_usd DESC, v.fecha DESC
+            """
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(f) for f in filas]
 
 
 @router.get("/actividad")

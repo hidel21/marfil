@@ -25,8 +25,9 @@ Money = Annotated[
 #: Tasa de cambio: 8 decimales, tambien como string.
 Tasa = Annotated[
     Decimal,
-    PlainSerializer(lambda v: f"{v:.8f}".rstrip("0").rstrip(".") if v is not None else None,
-                    return_type=str),
+    PlainSerializer(
+        lambda v: f"{v:.8f}".rstrip("0").rstrip(".") if v is not None else None, return_type=str
+    ),
 ]
 
 #: Porcentaje ya en base 1 (0.1667 = 16,67 %).

@@ -91,9 +91,7 @@ class Venta(Base, MarcasDeTiempo):
     plazo_dias: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     #: `fecha + plazo_dias`, o el vencimiento de la cuota impaga más antigua.
     fecha_vencimiento: Mapped[date] = mapped_column(Date, nullable=False)
-    tiene_plan_cuotas: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="false"
-    )
+    tiene_plan_cuotas: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     notas: Mapped[str | None] = mapped_column(Text)
     anulada_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

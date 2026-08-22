@@ -113,9 +113,7 @@ class AltaRapidaEntrada(BaseModel):
 
 
 @router.post("/alta-rapida", status_code=201)
-def alta_rapida(
-    datos: AltaRapidaEntrada, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir
-):
+def alta_rapida(datos: AltaRapidaEntrada, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir):
     """Crea un producto en borrador desde el formulario de venta.
 
     **Nada bloquea.** Si el nombre normalizado ya existe se devuelve el que hay, asi
@@ -245,10 +243,13 @@ def fusionar(
     ).one_or_none()
     if perdedor is None:
         raise NoEncontrado("ese producto")
-    if db.execute(
-        text("SELECT 1 FROM productos WHERE id = :i AND estado <> 'fusionado'"),
-        {"i": datos.destino_id},
-    ).scalar() is None:
+    if (
+        db.execute(
+            text("SELECT 1 FROM productos WHERE id = :i AND estado <> 'fusionado'"),
+            {"i": datos.destino_id},
+        ).scalar()
+        is None
+    ):
         raise NoEncontrado("el producto destino")
 
     db.execute(
@@ -267,3 +268,143 @@ def fusionar(
         {"d": datos.destino_id, "p": producto_id, "motivo": f"Fusionado: {datos.motivo}"},
     )
     db.commit()
+
+
+class ProductoActualizar(BaseModel):
+    nombre: str | None = Field(default=None, min_length=2, max_length=200)
+    linea: str | None = Field(default=None, max_length=80)
+    categoria: str | None = Field(default=None, max_length=80)
+    costo_usd: Decimal | None = Field(default=None, ge=0)
+    precio_original_usd: Decimal | None = Field(default=None, ge=0)
+    modelo_precio: str | None = Field(default=None, pattern="^(costo|lista)$")
+    stock_minimo: int | None = Field(default=None, ge=0, le=100000)
+    estado: str | None = Field(
+        default=None, pattern="^(activo|borrador_por_revisar|descatalogado)$"
+    )
+    notas: str | None = Field(default=None, max_length=2000)
+
+
+@router.put("/{producto_id}")
+def actualizar(
+    producto_id: int,
+    datos: ProductoActualizar,
+    db: SesionDb,
+    actual: SoloAdmin,
+    _: PuedeEscribir,
+):
+    """Edita la ficha y saca el producto de revisión cuando ya tiene base de precio."""
+    from app.api.errors import ErrorNegocio, NoEncontrado
+
+    existe = db.execute(
+        text(
+            "SELECT id, nombre, es_original FROM productos WHERE id = :i AND estado <> 'fusionado'"
+        ),
+        {"i": producto_id},
+    ).one_or_none()
+    if existe is None:
+        raise NoEncontrado("ese producto")
+    cambios = datos.model_dump(exclude_unset=True)
+    if not cambios:
+        return {"producto_id": producto_id}
+    if cambios.get("modelo_precio") == "lista" and cambios.get("precio_original_usd") is None:
+        actual_lista = db.execute(
+            text("SELECT precio_original_usd FROM productos WHERE id=:i"),
+            {"i": producto_id},
+        ).scalar()
+        if actual_lista is None:
+            raise ErrorNegocio(
+                "LISTA_SIN_PRECIO",
+                "Un perfume original necesita su precio de lista.",
+                campo="precio_original_usd",
+            )
+    permitidos = {
+        "nombre",
+        "linea",
+        "categoria",
+        "costo_usd",
+        "precio_original_usd",
+        "modelo_precio",
+        "stock_minimo",
+        "estado",
+        "notas",
+    }
+    asignaciones, params = [], {"id": producto_id, "usuario": actual.id}
+    for campo, valor in cambios.items():
+        if campo in permitidos:
+            asignaciones.append(f"{campo} = :{campo}")
+            params[campo] = valor.strip() if isinstance(valor, str) and campo != "notas" else valor
+    if "nombre" in cambios:
+        asignaciones.append("nombre_normalizado = :nombre_normalizado")
+        params["nombre_normalizado"] = clave_nombre(cambios["nombre"])
+    tiene_base = (
+        cambios.get("costo_usd") is not None or cambios.get("precio_original_usd") is not None
+    )
+    if tiene_base and "estado" not in cambios:
+        asignaciones.append("estado = 'activo'")
+    asignaciones.extend(["revisado_at = now()", "revisado_por_usuario_id = :usuario"])
+    db.execute(text(f"UPDATE productos SET {', '.join(asignaciones)} WHERE id = :id"), params)
+    if "nombre" in cambios:
+        db.execute(
+            text(
+                """
+                INSERT INTO productos_alias
+                  (producto_id, alias, alias_normalizado, es_original, origen)
+                VALUES (:p, :a, :k, :o, 'edicion_manual')
+                ON CONFLICT (alias_normalizado, es_original)
+                DO UPDATE SET producto_id = EXCLUDED.producto_id, alias = EXCLUDED.alias
+                """
+            ),
+            {
+                "p": producto_id,
+                "a": cambios["nombre"],
+                "k": clave_nombre(cambios["nombre"]),
+                "o": existe.es_original,
+            },
+        )
+    db.commit()
+    return {"producto_id": producto_id, "actualizado": list(cambios)}
+
+
+class AjusteStockEntrada(BaseModel):
+    stock_nuevo: int = Field(ge=0, le=1_000_000)
+    motivo: str = Field(min_length=3, max_length=300)
+
+
+@router.post("/{producto_id}/ajustar-stock", status_code=201)
+def ajustar_stock(
+    producto_id: int,
+    datos: AjusteStockEntrada,
+    db: SesionDb,
+    actual: SoloAdmin,
+    _: PuedeEscribir,
+):
+    from app.api.errors import ErrorNegocio, NoEncontrado
+
+    producto = db.execute(
+        text("SELECT id, stock FROM productos WHERE id=:i AND estado <> 'fusionado' FOR UPDATE"),
+        {"i": producto_id},
+    ).one_or_none()
+    if producto is None:
+        raise NoEncontrado("ese producto")
+    diferencia = datos.stock_nuevo - producto.stock
+    if diferencia == 0:
+        raise ErrorNegocio("STOCK_SIN_CAMBIO", "El conteo coincide con el stock actual.")
+    movimiento = db.execute(
+        text(
+            """
+            INSERT INTO movimientos_stock
+              (producto_id, tipo, cantidad, saldo_despues, referencia_tabla,
+               usuario_id, notas)
+            VALUES (:p, 'ajuste', :d, :s, 'conteo_fisico', :u, :m) RETURNING id
+            """
+        ),
+        {
+            "p": producto_id,
+            "d": diferencia,
+            "s": datos.stock_nuevo,
+            "u": actual.id,
+            "m": datos.motivo,
+        },
+    ).scalar_one()
+    db.commit()
+    return {"movimiento_id": movimiento, "stock_nuevo": datos.stock_nuevo}

@@ -30,6 +30,7 @@ Revises: 0001
 Create Date: 2026-08-22
 
 """
+
 from __future__ import annotations
 
 import json
@@ -76,8 +77,7 @@ PARAMETROS = (
     (
         "TOLERANCIA_PRECIO_PCT",
         "0.05",
-        "Cuanto puede desviarse el precio cobrado del precio de politica antes de "
-        "exigir un motivo",
+        "Cuanto puede desviarse el precio cobrado del precio de politica antes de exigir un motivo",
     ),
     (
         "DIAS_POR_VENCER",
@@ -225,6 +225,4 @@ def downgrade() -> None:
     op.execute("DELETE FROM configuracion")
     op.execute("DELETE FROM parametros_precio")
     conexion.execute(sa.text("UPDATE socios SET usuario_id = NULL"))
-    conexion.execute(
-        sa.text("DELETE FROM usuarios WHERE email = :e"), {"e": SUPERADMIN_EMAIL}
-    )
+    conexion.execute(sa.text("DELETE FROM usuarios WHERE email = :e"), {"e": SUPERADMIN_EMAIL})

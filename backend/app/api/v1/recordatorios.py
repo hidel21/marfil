@@ -85,9 +85,7 @@ def previsualizar(datos: LoteEntrada, db: SesionDb, actual: AdminOVendedor):
 
 
 @router.post("/lote", response_model=LoteSalida)
-def generar_lote(
-    datos: LoteEntrada, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir
-):
+def generar_lote(datos: LoteEntrada, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir):
     """Genera y guarda los recordatorios, con el cuerpo congelado.
 
     Los omitidos vuelven con su motivo en vez de hacer fallar el lote entero: 12
@@ -144,9 +142,7 @@ def listar(
 
 
 @router.post("/{recordatorio_id}/marcar-enviado", status_code=204)
-def marcar_enviado(
-    recordatorio_id: int, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir
-):
+def marcar_enviado(recordatorio_id: int, db: SesionDb, actual: AdminOVendedor, _: PuedeEscribir):
     """Un deep link no confirma entrega: esto registra que un humano lo despachó."""
     svc.marcar_enviado(db, recordatorio_id, usuario_id=actual.id)
     db.commit()

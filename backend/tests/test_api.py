@@ -164,9 +164,9 @@ def test_las_tarjetas_criticas_van_primero(cliente_api, token):
 
 def test_la_tarjeta_de_datos_de_pago_esta_en_rojo(cliente_api, token):
     """Se siembran vacíos, así que arranca en crítica: bloquea toda la cobranza."""
-    tarjetas = {t["clave"]: t for t in cliente_api.get(
-        "/api/v1/auditoria/calidad", headers=token
-    ).json()}
+    tarjetas = {
+        t["clave"]: t for t in cliente_api.get("/api/v1/auditoria/calidad", headers=token).json()
+    }
     tarjeta = tarjetas["datos_pago_incompletos"]
     assert tarjeta["severidad"] == "critica"
     assert tarjeta["cantidad"] == 3, "banco, documento y teléfono"
@@ -182,10 +182,107 @@ def test_cada_tarjeta_dice_que_hacer_y_donde(cliente_api, token):
 
 def test_las_tres_conciliaciones_cuadran(cliente_api, token):
     for tipo in ("ventas", "pagos", "stock"):
-        d = cliente_api.get(
-            f"/api/v1/auditoria/conciliacion?tipo={tipo}", headers=token
-        ).json()
+        d = cliente_api.get(f"/api/v1/auditoria/conciliacion?tipo={tipo}", headers=token).json()
         assert d["ok"] is True, f"{tipo} descuadrado: {d['items'][:2]}"
+
+
+# ---------------------------------------------------- panel operativo nuevo
+def test_el_dashboard_entrega_metricas_y_serie(cliente_api, token):
+    d = cliente_api.get("/api/v1/dashboard/resumen?dias=14", headers=token).json()
+    assert d["dias"] == 14
+    assert len(d["actividad"]) == 14
+    assert isinstance(d["metricas"]["ventas_mes_usd"], str)
+    assert "ventas_recientes" in d
+
+
+def test_compras_actualizan_stock_y_cuenta_por_pagar(cliente_api, token, engine_api):
+    _, producto = _semilla_venta(engine_api)
+    with engine_api.begin() as c:
+        c.execute(
+            text(
+                "INSERT INTO movimientos_stock "
+                "(producto_id, tipo, cantidad, saldo_despues, referencia_tabla) "
+                "VALUES (:p, 'carga_inicial', 10, 10, 'semilla_test')"
+            ),
+            {"p": producto},
+        )
+    sufijo = uuid4().hex[:8]
+    proveedor = cliente_api.post(
+        "/api/v1/compras/proveedores",
+        headers=token,
+        json={"nombre": f"Proveedor API {sufijo}", "telefono": "0412-1234567"},
+    )
+    assert proveedor.status_code == 201, proveedor.text
+    compra = cliente_api.post(
+        "/api/v1/compras",
+        headers=token,
+        json={
+            "codigo": f"LOTE-{sufijo}",
+            "fecha": str(date.today()),
+            "proveedor_id": proveedor.json()["id"],
+            "lineas": [
+                {
+                    "producto_id": producto,
+                    "descripcion": "Reposición API",
+                    "cantidad": 2,
+                    "costo_unitario_usd": "13.50",
+                }
+            ],
+            "pago_inicial_usd": "10.00",
+        },
+    )
+    assert compra.status_code == 201, compra.text
+    lotes = cliente_api.get("/api/v1/compras", headers=token).json()
+    lote = next(x for x in lotes if x["lote_id"] == compra.json()["lote_id"])
+    assert lote["total_usd"] == "27.00"
+    assert lote["saldo_usd"] == "17.00"
+    with engine_api.connect() as c:
+        assert (
+            c.execute(text("SELECT stock FROM productos WHERE id=:i"), {"i": producto}).scalar()
+            == 12
+        )
+
+
+def test_gastos_alimentan_el_resumen_financiero(cliente_api, token):
+    descripcion = f"Publicidad API {uuid4().hex[:8]}"
+    creado = cliente_api.post(
+        "/api/v1/gastos",
+        headers=token,
+        json={
+            "fecha": str(date.today()),
+            "categoria": "publicidad",
+            "descripcion": descripcion,
+            "monto_usd": "8.25",
+        },
+    )
+    assert creado.status_code == 201, creado.text
+    gastos = cliente_api.get("/api/v1/gastos", headers=token).json()
+    assert any(x["descripcion"] == descripcion for x in gastos["items"])
+    resumen = cliente_api.get("/api/v1/finanzas/resumen", headers=token)
+    assert resumen.status_code == 200
+    assert isinstance(resumen.json()["cuentas_por_pagar"]["por_pagar_usd"], str)
+
+
+def test_reportes_descargan_csv_y_recibo_pdf(cliente_api, token, engine_api):
+    venta = _venta_con_saldo(cliente_api, token, engine_api)
+    pago = cliente_api.post(
+        "/api/v1/pagos",
+        headers=token,
+        json={
+            "venta_id": venta,
+            "fecha": str(date.today()),
+            "canal": "efectivo_usd",
+            "monto_moneda": "5.00",
+        },
+    ).json()["pago_id"]
+    csv = cliente_api.get("/api/v1/reportes/exportar/ventas", headers=token)
+    assert csv.status_code == 200
+    assert csv.headers["content-type"].startswith("text/csv")
+    assert csv.content.startswith("\ufeff".encode())
+    pdf = cliente_api.get(f"/api/v1/reportes/recibos/{pago}.pdf", headers=token)
+    assert pdf.status_code == 200
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content.startswith(b"%PDF")
 
 
 # ---------------------------------------------------------- datos de pago
@@ -199,14 +296,30 @@ def test_sin_datos_de_pago_no_se_genera_un_recordatorio(cliente_api, token):
 
 def test_los_datos_de_pago_validan_formato_real(cliente_api, token):
     malos = [
-        {"titular": "X", "codigo_banco": "0191", "documento": "V-12345678",
-         "telefono": "04121234567"},
-        {"titular": "Gregory Marfil", "codigo_banco": "9999", "documento": "V-12345678",
-         "telefono": "04121234567"},
-        {"titular": "Gregory Marfil", "codigo_banco": "0191", "documento": "V-XX.XXX.XXX",
-         "telefono": "04121234567"},
-        {"titular": "Gregory Marfil", "codigo_banco": "0191", "documento": "V-12345678",
-         "telefono": "02121234567"},
+        {
+            "titular": "X",
+            "codigo_banco": "0191",
+            "documento": "V-12345678",
+            "telefono": "04121234567",
+        },
+        {
+            "titular": "Gregory Marfil",
+            "codigo_banco": "9999",
+            "documento": "V-12345678",
+            "telefono": "04121234567",
+        },
+        {
+            "titular": "Gregory Marfil",
+            "codigo_banco": "0191",
+            "documento": "V-XX.XXX.XXX",
+            "telefono": "04121234567",
+        },
+        {
+            "titular": "Gregory Marfil",
+            "codigo_banco": "0191",
+            "documento": "V-12345678",
+            "telefono": "02121234567",
+        },
     ]
     for datos in malos:
         r = cliente_api.put("/api/v1/ajustes/pagos", headers=token, json=datos)
@@ -560,9 +673,7 @@ def test_el_autocompletado_sugiere_similares(cliente_api, token, engine_api):
                 "ON CONFLICT DO NOTHING"
             )
         )
-    d = cliente_api.get(
-        "/api/v1/productos/sugerencias?q=AQUA DI GIO", headers=token
-    ).json()
+    d = cliente_api.get("/api/v1/productos/sugerencias?q=AQUA DI GIO", headers=token).json()
     nombres = [s["nombre"] for s in d["exactos"]] + [s["nombre"] for s in d["similares"]]
     assert "ACQUA DI GIO" in nombres
 
@@ -776,9 +887,7 @@ def test_el_superadmin_crea_un_perfil_y_la_persona_elige_su_clave(cliente_api, t
     assert "contraseña" not in creado.get("instrucciones", "").lower() or True
 
     # Antes de activar, no se puede entrar.
-    previo = cliente_api.post(
-        "/api/v1/auth/login", json={"email": email, "password": "cualquiera"}
-    )
+    previo = cliente_api.post("/api/v1/auth/login", json={"email": email, "password": "cualquiera"})
     assert previo.json()["codigo"] == "USUARIO_SIN_PASSWORD"
 
     # La persona canjea el código por SU contraseña.

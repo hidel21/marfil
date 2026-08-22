@@ -42,9 +42,7 @@ def parametros_vigentes(sesion: Session, en_fecha: date | None = None) -> dict[s
     """Todos los parametros que rigen en esa fecha, con respaldo para los que falten."""
     fecha = en_fecha or date.today()
     filas = sesion.execute(
-        text(
-            "SELECT clave, valor FROM parametros_precio WHERE vigencia @> CAST(:f AS date)"
-        ),
+        text("SELECT clave, valor FROM parametros_precio WHERE vigencia @> CAST(:f AS date)"),
         {"f": fecha},
     ).all()
     valores = dict(RESPALDO)

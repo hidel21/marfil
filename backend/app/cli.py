@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 
 from sqlalchemy import text
@@ -113,9 +114,7 @@ def _crear_usuario(email: str, nombre: str, rol: str, cliente_id: int | None) ->
         return 1
 
     with sesion_manual() as s:
-        existe = s.execute(
-            text("SELECT 1 FROM usuarios WHERE email = :e"), {"e": email}
-        ).scalar()
+        existe = s.execute(text("SELECT 1 FROM usuarios WHERE email = :e"), {"e": email}).scalar()
         if existe:
             print(f"Ya hay un usuario con email {email!r}.", file=sys.stderr)
             return 1
@@ -180,12 +179,36 @@ def _estado() -> int:
     return 0
 
 
+def _inicializar_admin() -> int:
+    """Activa una sola vez el admin sembrado, sin reescribir claves posteriores."""
+    password = os.getenv("ADMIN_INITIAL_PASSWORD", "")
+    if not password:
+        print("ADMIN_INITIAL_PASSWORD no definido; inicialización omitida.")
+        return 0
+    try:
+        password_hash = hashear_password(password)
+    except ValueError as exc:
+        print(f"ADMIN_INITIAL_PASSWORD inválido: {exc}", file=sys.stderr)
+        return 1
+    with sesion_manual() as s:
+        actualizado = s.execute(
+            text(
+                "UPDATE usuarios SET password_hash=:h, debe_cambiar_password=FALSE "
+                "WHERE email='hm@intelli-next.com' AND password_hash=:bloqueado"
+            ),
+            {"h": password_hash, "bloqueado": HASH_BLOQUEADO},
+        ).rowcount
+    print("Administrador inicial activado." if actualizado else "Administrador ya inicializado.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli", description="Administración de Marfil")
     sub = parser.add_subparsers(dest="comando", required=True)
 
     sub.add_parser("usuarios", help="listar usuarios y su estado")
     sub.add_parser("estado", help="revisión, conteos y si falta configuración")
+    sub.add_parser("inicializar-admin", help="activa una vez el admin desde una variable segura")
 
     p_pass = sub.add_parser("establecer-password", help="fijar la contraseña de un usuario")
     p_pass.add_argument("email")
@@ -207,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         return _listar_usuarios()
     if args.comando == "estado":
         return _estado()
+    if args.comando == "inicializar-admin":
+        return _inicializar_admin()
     if args.comando == "establecer-password":
         return _establecer_password(args.email, args.password)
     if args.comando == "crear-usuario":

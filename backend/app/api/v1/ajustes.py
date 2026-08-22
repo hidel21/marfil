@@ -69,9 +69,7 @@ class DatosPagoEntrada(BaseModel):
     def _telefono(cls, v: str) -> str:
         digitos = re.sub(r"\D", "", v)
         if not re.fullmatch(r"0(412|414|416|424|426)\d{7}", digitos):
-            raise ValueError(
-                "Tiene que ser un móvil venezolano: 0412, 0414, 0416, 0424 o 0426."
-            )
+            raise ValueError("Tiene que ser un móvil venezolano: 0412, 0414, 0416, 0424 o 0426.")
         return f"{digitos[:4]}-{digitos[4:]}"
 
     @field_validator("codigo_banco")
@@ -98,9 +96,7 @@ def obtener_datos_pago(db: SesionDb, actual: Usuario):
 
 
 @router.put("/pagos")
-def guardar_datos_pago(
-    datos: DatosPagoEntrada, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir
-):
+def guardar_datos_pago(datos: DatosPagoEntrada, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir):
     """Guardarlos acá es lo que desbloquea la cobranza por WhatsApp."""
     valor = {
         "titular": datos.titular.strip(),
@@ -131,9 +127,7 @@ def politica(db: SesionDb, actual: SoloAdmin, en_fecha: date | None = None):
     p = parametros_vigentes(db, en_fecha)
     ejemplo = Decimal("12.00")
     return {
-        "parametros": [
-            {"clave": k, "valor": v} for k, v in sorted(p.items())
-        ],
+        "parametros": [{"clave": k, "valor": v} for k, v in sorted(p.items())],
         "ejemplo": {
             "costo_usd": str(ejemplo),
             "precio_divisa_usd": str(round(ejemplo * (1 + p["GANANCIA_DIVISA"]), 2)),
@@ -154,9 +148,7 @@ class ParametroEntrada(BaseModel):
 
 
 @router.post("/politica", status_code=201)
-def cambiar_parametro(
-    datos: ParametroEntrada, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir
-):
+def cambiar_parametro(datos: ParametroEntrada, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir):
     """Cierra la vigencia anterior y abre una nueva. El historial queda entero.
 
     Por eso cambiar la ganancia deja de ser irreversible: el margen de una venta de
@@ -175,8 +167,13 @@ def cambiar_parametro(
             "creado_por_usuario_id) VALUES (:k, :v, daterange(:desde, NULL), :m, :u) "
             "RETURNING id"
         ),
-        {"k": datos.clave, "v": datos.valor, "desde": datos.desde, "m": datos.motivo,
-         "u": actual.id},
+        {
+            "k": datos.clave,
+            "v": datos.valor,
+            "desde": datos.desde,
+            "m": datos.motivo,
+            "u": actual.id,
+        },
     ).scalar_one()
     db.commit()
     return {"parametro_id": nuevo, "clave": datos.clave, "valor": datos.valor}
@@ -194,3 +191,32 @@ def tasas(db: SesionDb, actual: Usuario, limite: int = 30):
         {"l": limite},
     ).all()
     return [dict(f._mapping) for f in filas]
+
+
+class TasaEntrada(BaseModel):
+    fecha: date
+    tipo: str = Field(default="bcv", pattern="^(bcv|binance|usdt_ve|paralelo)$")
+    valor: Decimal = Field(gt=0)
+    motivo: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/tasas", status_code=201)
+def guardar_tasa(datos: TasaEntrada, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir):
+    """Guarda o corrige el snapshot; los pagos históricos siguen siendo inmutables."""
+    fila = db.execute(
+        text(
+            """
+            INSERT INTO tasas_cambio
+              (fecha, tipo, valor, origen, confianza, payload)
+            VALUES (:f, :t, :v, 'manual', 'alta',
+                    jsonb_build_object('motivo', :m, 'usuario_id', :u))
+            ON CONFLICT (fecha, tipo) DO UPDATE SET
+              valor=EXCLUDED.valor, origen='manual', confianza='alta',
+              payload=EXCLUDED.payload, capturado_at=now()
+            RETURNING id
+            """
+        ),
+        {"f": datos.fecha, "t": datos.tipo, "v": datos.valor, "m": datos.motivo, "u": actual.id},
+    ).scalar_one()
+    db.commit()
+    return {"tasa_id": fila, "fecha": datos.fecha, "tipo": datos.tipo, "valor": datos.valor}

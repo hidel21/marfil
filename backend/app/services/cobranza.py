@@ -236,10 +236,7 @@ def por_venta(
     return [
         dict(f._mapping)
         for f in sesion.execute(
-            text(
-                f"SELECT * FROM v_cobranza {where} "
-                "ORDER BY dias_mora DESC, saldo_usd DESC"
-            ),
+            text(f"SELECT * FROM v_cobranza {where} ORDER BY dias_mora DESC, saldo_usd DESC"),
             params,
         ).all()
     ]
@@ -247,12 +244,10 @@ def por_venta(
 
 def antiguedad_de(sesion: Session, cliente_id: int, hoy: date | None = None) -> int:
     del hoy
-    return (
-        sesion.execute(
-            text(
-                "SELECT COALESCE(max(dias_mora), 0) FROM v_cobranza "
-                "WHERE cliente_id = :c AND saldo_usd > 0"
-            ),
-            {"c": cliente_id},
-        ).scalar_one()
-    )
+    return sesion.execute(
+        text(
+            "SELECT COALESCE(max(dias_mora), 0) FROM v_cobranza "
+            "WHERE cliente_id = :c AND saldo_usd > 0"
+        ),
+        {"c": cliente_id},
+    ).scalar_one()

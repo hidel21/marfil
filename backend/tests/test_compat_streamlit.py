@@ -172,8 +172,7 @@ def test_se_crea_la_cuota_implicita(conn):
     v = _vender(conn, "Compat Cuota", precio_venta=44)
     cuota = conn.execute(
         text(
-            "SELECT numero, fecha_vencimiento, monto_usd, implicita "
-            "FROM cuotas WHERE venta_id = :i"
+            "SELECT numero, fecha_vencimiento, monto_usd, implicita FROM cuotas WHERE venta_id = :i"
         ),
         {"i": v},
     ).one()

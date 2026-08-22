@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     cors_origenes: str = Field(default="http://localhost:3000")
     zona_horaria: str = Field(default="America/Caracas")
 
+    #: Los jobs corren dentro del proceso cuando el hosting mantiene una instancia
+    #: viva. En plataformas que duermen, el mismo trabajo se dispara por el endpoint
+    #: protegido desde un cron externo.
+    jobs_habilitados: bool = Field(default=False)
+    job_secret: str = Field(default="")
+    tasa_api_url: str = Field(default="https://ve.dolarapi.com/v1/dolares/oficial")
+    frontend_dir: str = Field(default="")
+
     # Interruptor de emergencia del plan (fase 4): deja la API sin escrituras.
     solo_lectura: bool = Field(default=False)
 
@@ -80,14 +88,18 @@ class Settings(BaseSettings):
         if len(self.jwt_secret.encode()) < 32:
             problemas.append(
                 "JWT_SECRET tiene menos de 32 bytes: HMAC-SHA256 necesita al menos eso "
-                "(RFC 7518 §3.2). Genera uno con `python -c \"import secrets;"
-                "print(secrets.token_urlsafe(48))\"`."
+                '(RFC 7518 §3.2). Genera uno con `python -c "import secrets;'
+                'print(secrets.token_urlsafe(48))"`.'
             )
         if not self.database_url:
             problemas.append("Falta DATABASE_URL.")
         if "localhost" in self.cors_origenes:
             problemas.append(
                 f"CORS_ORIGENES apunta a localhost en produccion: {self.cors_origenes!r}"
+            )
+        if self.jobs_habilitados and len(self.job_secret) < 24:
+            problemas.append(
+                "JOB_SECRET necesita al menos 24 caracteres cuando JOBS_HABILITADOS=true."
             )
         if problemas:
             raise RuntimeError(
