@@ -44,3 +44,38 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+
+-- El alias propio de cada producto y cliente, mantenido por la base.
+--
+-- Sin esto, un producto creado despues de la revision 0004 no tiene alias y
+-- `resolver_producto()` no lo encuentra: la venta que lo menciona termina creando un
+-- duplicado. Lo mismo con un cliente nuevo.
+--
+-- No le roba el alias a nadie: si la clave ya pertenece a otra fila —tipicamente
+-- porque este producto se fusiono en aquel— no toca nada.
+CREATE OR REPLACE FUNCTION fn_producto_self_alias() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.estado = 'fusionado' THEN
+        RETURN NULL;
+    END IF;
+    INSERT INTO productos_alias (producto_id, alias, alias_normalizado, es_original, origen)
+    VALUES (NEW.id, NEW.nombre, NEW.nombre_normalizado, NEW.es_original, 'catalogo')
+    ON CONFLICT (alias_normalizado, es_original) DO NOTHING;
+    RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION fn_cliente_self_alias() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.estado = 'fusionado' THEN
+        RETURN NULL;
+    END IF;
+    INSERT INTO clientes_alias (cliente_id, alias, alias_normalizado, origen)
+    VALUES (NEW.id, NEW.nombre, NEW.nombre_normalizado, 'catalogo')
+    ON CONFLICT (alias_normalizado) DO NOTHING;
+    RETURN NULL;
+END;
+$$;

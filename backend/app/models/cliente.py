@@ -41,8 +41,12 @@ class Cliente(Base, MarcasDeTiempo):
             "telefono_e164",
             postgresql_where="telefono_e164 IS NOT NULL",
         ),
-        Index("ix_clientes_nombre_trgm", "nombre_normalizado", postgresql_using="gin",
-              postgresql_ops={"nombre_normalizado": "gin_trgm_ops"}),
+        Index(
+            "ix_clientes_nombre_trgm",
+            "nombre_normalizado",
+            postgresql_using="gin",
+            postgresql_ops={"nombre_normalizado": "gin_trgm_ops"},
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -60,9 +64,13 @@ class Cliente(Base, MarcasDeTiempo):
     #: NULL -> se usa el parámetro global PLAZO_CREDITO_DIAS.
     plazo_credito_dias: Mapped[int | None] = mapped_column(SmallInteger)
     #: Los socios también compran; hay que poder excluir su autoconsumo del ingreso real.
-    es_socio: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    es_socio: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     estado: Mapped[EstadoRegistro] = mapped_column(
-        enum_pg(EstadoRegistro), nullable=False, server_default=EstadoRegistro.ACTIVO.value
+        enum_pg(EstadoRegistro),
+        nullable=False,
+        server_default=EstadoRegistro.ACTIVO.value,
     )
     fusionado_en_cliente_id: Mapped[int | None] = mapped_column(
         ForeignKey("clientes.id", name="fk_clientes_fusionado_en_cliente_id_clientes")
@@ -72,7 +80,9 @@ class Cliente(Base, MarcasDeTiempo):
     # un cliente con login). La FK se agrega con ALTER despues de crear ambas.
     creado_por_usuario_id: Mapped[int | None] = mapped_column(
         ForeignKey(
-            "usuarios.id", name="fk_clientes_creado_por_usuario_id_usuarios", use_alter=True
+            "usuarios.id",
+            name="fk_clientes_creado_por_usuario_id_usuarios",
+            use_alter=True,
         )
     )
 
@@ -80,7 +90,10 @@ class Cliente(Base, MarcasDeTiempo):
         "ClienteAlias", back_populates="cliente", cascade="all, delete-orphan"
     )
     usuario: Mapped[Usuario | None] = relationship(  # noqa: F821
-        "Usuario", foreign_keys="Usuario.cliente_id", back_populates="cliente", uselist=False
+        "Usuario",
+        foreign_keys="Usuario.cliente_id",
+        back_populates="cliente",
+        uselist=False,
     )
 
     @property
@@ -96,7 +109,9 @@ class ClienteAlias(Base):
         ForeignKey("clientes.id", ondelete="CASCADE"), nullable=False
     )
     alias: Mapped[str] = mapped_column(String(160), nullable=False)
-    alias_normalizado: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
+    alias_normalizado: Mapped[str] = mapped_column(
+        String(160), nullable=False, unique=True
+    )
     #: excel_ventas | excel_control | db_legacy | manual
     origen: Mapped[str] = mapped_column(String(32), nullable=False)
 

@@ -42,7 +42,11 @@ class EventoAuditoria(Base):
         Index("ix_auditoria_usuario", "usuario_id", "ocurrido_at"),
         Index("ix_auditoria_ocurrido_at_brin", "ocurrido_at", postgresql_using="brin"),
         # El filtro de "solo excepciones": todo lo que lleva un motivo.
-        Index("ix_auditoria_con_motivo", "ocurrido_at", postgresql_where="motivo IS NOT NULL"),
+        Index(
+            "ix_auditoria_con_motivo",
+            "ocurrido_at",
+            postgresql_where="motivo IS NOT NULL",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -50,10 +54,14 @@ class EventoAuditoria(Base):
         DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
     )
     actor_tipo: Mapped[ActorAuditoria] = mapped_column(
-        enum_pg(ActorAuditoria), nullable=False, server_default=ActorAuditoria.SISTEMA.value
+        enum_pg(ActorAuditoria),
+        nullable=False,
+        server_default=ActorAuditoria.SISTEMA.value,
     )
     usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
-    accion: Mapped[AccionAuditoria] = mapped_column(enum_pg(AccionAuditoria), nullable=False)
+    accion: Mapped[AccionAuditoria] = mapped_column(
+        enum_pg(AccionAuditoria), nullable=False
+    )
     tabla: Mapped[str] = mapped_column(String(48), nullable=False)
     registro_id: Mapped[str] = mapped_column(Text, nullable=False)
     antes: Mapped[dict | None] = mapped_column(JSONB)
@@ -82,8 +90,12 @@ class Conciliacion(Base):
     )
     #: ventas | pagos_bs | stock | cuotas
     tipo: Mapped[str] = mapped_column(String(32), nullable=False)
-    filas_revisadas: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    filas_descuadradas: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    filas_revisadas: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
+    filas_descuadradas: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
     ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
     detalle: Mapped[dict | None] = mapped_column(JSONB)
 
@@ -106,7 +118,11 @@ class JobEjecucion(Base):
     )
     fin: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: corriendo | ok | error
-    estado: Mapped[str] = mapped_column(String(16), nullable=False, server_default="corriendo")
-    filas_afectadas: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    estado: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="corriendo"
+    )
+    filas_afectadas: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
     detalle: Mapped[dict | None] = mapped_column(JSONB)
     error: Mapped[str | None] = mapped_column(Text)

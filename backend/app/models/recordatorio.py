@@ -56,16 +56,25 @@ class PlantillaMensaje(Base):
     clave: Mapped[str] = mapped_column(String(48), primary_key=True)
     nombre: Mapped[str] = mapped_column(String(120), nullable=False)
     #: whatsapp | email
-    canal: Mapped[str] = mapped_column(String(24), nullable=False, server_default="whatsapp")
+    canal: Mapped[str] = mapped_column(
+        String(24), nullable=False, server_default="whatsapp"
+    )
     #: Jinja2. Texto plano: WhatsApp no renderiza marcado rico.
     cuerpo: Mapped[str] = mapped_column(Text, nullable=False)
     #: Las variables que esta plantilla declara usar, para validar al guardar.
     variables: Mapped[list | None] = mapped_column(JSONB)
-    version: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="1")
+    version: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="1"
+    )
     activa: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    actualizado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    actualizado_por_usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
 
@@ -83,7 +92,9 @@ class PlantillaVersion(Base):
     )
     version: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     cuerpo: Mapped[str] = mapped_column(Text, nullable=False)
-    guardado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    guardado_por_usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -113,7 +124,9 @@ class Recordatorio(Base):
     ventas_incluidas: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))
 
     #: whatsapp_manual | whatsapp_api | email
-    canal: Mapped[str] = mapped_column(String(24), nullable=False, server_default="whatsapp_manual")
+    canal: Mapped[str] = mapped_column(
+        String(24), nullable=False, server_default="whatsapp_manual"
+    )
     plantilla_clave: Mapped[str] = mapped_column(
         ForeignKey("plantillas_mensaje.clave"), nullable=False
     )
@@ -123,9 +136,13 @@ class Recordatorio(Base):
     destino: Mapped[str | None] = mapped_column(String(64))
 
     #: Los números al momento de generar: un recordatorio viejo no debe recalcularse.
-    saldo_usd_al_generar: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    saldo_usd_al_generar: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), nullable=False
+    )
     tasa_al_generar: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
-    dias_mora_al_generar: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    dias_mora_al_generar: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
 
     estado: Mapped[EstadoRecordatorio] = mapped_column(
         enum_pg(EstadoRecordatorio),
@@ -138,8 +155,12 @@ class Recordatorio(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     enviado_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    generado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
-    marcado_enviado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    generado_por_usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
+    marcado_enviado_por_usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
 
     proveedor: Mapped[str | None] = mapped_column(String(32))
     proveedor_mensaje_id: Mapped[str | None] = mapped_column(String(128))
@@ -147,7 +168,9 @@ class Recordatorio(Base):
 
     #: Columna generada: `generado_at::date`. Es la que entra en el índice único.
     dia_generacion: Mapped[date] = mapped_column(
-        Date, Computed("(generado_at AT TIME ZONE 'UTC')::date", persisted=True), nullable=False
+        Date,
+        Computed("(generado_at AT TIME ZONE 'UTC')::date", persisted=True),
+        nullable=False,
     )
 
     cliente: Mapped[Cliente] = relationship("Cliente")  # noqa: F821

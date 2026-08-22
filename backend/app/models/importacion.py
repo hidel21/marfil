@@ -44,13 +44,19 @@ class Importacion(Base):
     #: sha256 del contenido: la guardia de idempotencia.
     archivo_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     #: 'v1' (libro original) | 'v2' (libro auditado)
-    mapeo_version: Mapped[str] = mapped_column(String(16), nullable=False, server_default="v1")
+    mapeo_version: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="v1"
+    )
     #: archivado | procesado | revertido
-    estado: Mapped[str] = mapped_column(String(16), nullable=False, server_default="archivado")
+    estado: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="archivado"
+    )
     importado_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    importado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    importado_por_usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
 
     filas: Mapped[list[FilaImportada]] = relationship(
         "FilaImportada", back_populates="importacion", cascade="all, delete-orphan"
@@ -61,7 +67,10 @@ class FilaImportada(Base):
     __tablename__ = "filas_importadas"
     __table_args__ = (
         UniqueConstraint(
-            "importacion_id", "hoja", "numero_fila", name="uq_filas_importadas_ubicacion"
+            "importacion_id",
+            "hoja",
+            "numero_fila",
+            name="uq_filas_importadas_ubicacion",
         ),
         Index("ix_filas_importadas_datos", "datos", postgresql_using="gin"),
     )
@@ -75,14 +84,19 @@ class FilaImportada(Base):
     numero_fila: Mapped[int] = mapped_column(Integer, nullable=False)
     datos: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
-    importacion: Mapped[Importacion] = relationship("Importacion", back_populates="filas")
+    importacion: Mapped[Importacion] = relationship(
+        "Importacion", back_populates="filas"
+    )
 
 
 class EnlaceImportacion(Base):
     __tablename__ = "enlaces_importacion"
     __table_args__ = (
         UniqueConstraint(
-            "fila_id", "tabla_destino", "registro_id", name="uq_enlaces_importacion_destino"
+            "fila_id",
+            "tabla_destino",
+            "registro_id",
+            name="uq_enlaces_importacion_destino",
         ),
         Index("ix_enlaces_importacion_destino", "tabla_destino", "registro_id"),
         Index(
@@ -104,5 +118,7 @@ class EnlaceImportacion(Base):
         enum_pg(ConfianzaDato), nullable=False, server_default=ConfianzaDato.ALTA.value
     )
     revisado_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    revisado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    revisado_por_usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
     notas: Mapped[str | None] = mapped_column(Text)

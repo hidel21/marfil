@@ -198,6 +198,17 @@ def upgrade() -> None:
         CREATE TRIGGER trg_productos_alias_normalizar
         BEFORE INSERT OR UPDATE OF alias ON productos_alias
         FOR EACH ROW EXECUTE FUNCTION fn_normalizar_nombre('alias', 'alias_normalizado');
+
+        -- El alias propio, para que un producto o cliente creado despues de esta
+        -- revision sea encontrable. Sin esto, la venta que menciona un producto
+        -- nuevo no lo resuelve y termina creando un duplicado.
+        CREATE TRIGGER trg_productos_self_alias
+        AFTER INSERT OR UPDATE OF nombre, estado ON productos
+        FOR EACH ROW EXECUTE FUNCTION fn_producto_self_alias();
+
+        CREATE TRIGGER trg_clientes_self_alias
+        AFTER INSERT OR UPDATE OF nombre, estado ON clientes
+        FOR EACH ROW EXECUTE FUNCTION fn_cliente_self_alias();
         """
     )
 
@@ -460,6 +471,10 @@ def downgrade() -> None:
 
     op.execute(
         """
+        DROP TRIGGER IF EXISTS trg_clientes_self_alias ON clientes;
+        DROP TRIGGER IF EXISTS trg_productos_self_alias ON productos;
+        DROP FUNCTION IF EXISTS fn_cliente_self_alias() CASCADE;
+        DROP FUNCTION IF EXISTS fn_producto_self_alias() CASCADE;
         DROP TRIGGER IF EXISTS trg_productos_alias_normalizar ON productos_alias;
         DROP TRIGGER IF EXISTS trg_clientes_alias_normalizar ON clientes_alias;
         DROP TRIGGER IF EXISTS trg_clientes_normalizar ON clientes;

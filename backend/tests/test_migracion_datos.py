@@ -208,23 +208,41 @@ def test_un_producto_fusionado_exige_destino(conn):
 
 
 # ------------------------------------------------------------------ 0003 clientes
-def test_el_alias_de_cliente_se_normaliza_solo(conn):
+def test_el_cliente_recibe_su_alias_propio_solo(conn):
+    """Sin el alias propio, un cliente creado hoy no se encuentra por nombre."""
     cid = conn.execute(
+        text("INSERT INTO clientes (nombre) VALUES ('  JUAN  Herrade ') RETURNING id")
+    ).scalar_one()
+    fila = conn.execute(
         text(
-            "INSERT INTO clientes (nombre) VALUES ('Juan Herrade') RETURNING id"
-        )
+            "SELECT c.nombre_normalizado, a.alias, a.alias_normalizado, a.origen "
+            "FROM clientes c JOIN clientes_alias a ON a.cliente_id = c.id WHERE c.id = :c"
+        ),
+        {"c": cid},
+    ).one()
+    assert fila.nombre_normalizado == "juanherrade"
+    assert fila.alias_normalizado == "juanherrade"
+    assert fila.origen == "catalogo"
+
+
+def test_un_alias_extra_tambien_se_normaliza(conn):
+    cid = conn.execute(
+        text("INSERT INTO clientes (nombre) VALUES ('Cristhian') RETURNING id")
     ).scalar_one()
     conn.execute(
         text(
             "INSERT INTO clientes_alias (cliente_id, alias, origen) "
-            "VALUES (:c, 'Juan  herrade ', 'test')"
+            "VALUES (:c, '  Cristihan  ', 'test')"
         ),
         {"c": cid},
     )
     assert conn.execute(
-        text("SELECT alias_normalizado FROM clientes_alias WHERE cliente_id = :c"),
+        text(
+            "SELECT alias_normalizado FROM clientes_alias "
+            "WHERE cliente_id = :c AND origen = 'test'"
+        ),
         {"c": cid},
-    ).scalar() == "juanherrade"
+    ).scalar() == "cristihan"
 
 
 def test_un_alias_no_puede_apuntar_a_dos_clientes(conn):

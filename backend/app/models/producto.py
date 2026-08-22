@@ -57,8 +57,12 @@ class Producto(Base, MarcasDeTiempo):
             "estado",
             postgresql_where="estado = 'borrador_por_revisar'",
         ),
-        Index("ix_productos_nombre_trgm", "nombre_normalizado", postgresql_using="gin",
-              postgresql_ops={"nombre_normalizado": "gin_trgm_ops"}),
+        Index(
+            "ix_productos_nombre_trgm",
+            "nombre_normalizado",
+            postgresql_using="gin",
+            postgresql_ops={"nombre_normalizado": "gin_trgm_ops"},
+        ),
         CheckConstraint(
             "estado <> 'fusionado' OR fusionado_en_producto_id IS NOT NULL",
             name="fusionado_exige_destino",
@@ -67,14 +71,18 @@ class Producto(Base, MarcasDeTiempo):
             "modelo_precio <> 'lista' OR precio_original_usd IS NOT NULL",
             name="modelo_lista_exige_precio",
         ),
-        CheckConstraint("costo_usd IS NULL OR costo_usd >= 0", name="costo_no_negativo"),
+        CheckConstraint(
+            "costo_usd IS NULL OR costo_usd >= 0", name="costo_no_negativo"
+        ),
         CheckConstraint("stock_minimo >= 0", name="stock_minimo_no_negativo"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     nombre: Mapped[str] = mapped_column(String(200), nullable=False)
     nombre_normalizado: Mapped[str] = mapped_column(String(200), nullable=False)
-    es_original: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    es_original: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     modelo_precio: Mapped[ModeloPrecio] = mapped_column(
         enum_pg(ModeloPrecio), nullable=False, server_default=ModeloPrecio.COSTO.value
     )
@@ -87,15 +95,23 @@ class Producto(Base, MarcasDeTiempo):
     precio_original_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     #: Caché de `SUM(movimientos_stock.cantidad)`, mantenido por trigger.
     stock: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    stock_minimo: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    stock_minimo: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
     estado: Mapped[EstadoProducto] = mapped_column(
-        enum_pg(EstadoProducto), nullable=False, server_default=EstadoProducto.ACTIVO.value
+        enum_pg(EstadoProducto),
+        nullable=False,
+        server_default=EstadoProducto.ACTIVO.value,
     )
     fusionado_en_producto_id: Mapped[int | None] = mapped_column(
-        ForeignKey("productos.id", name="fk_productos_fusionado_en_producto_id_productos")
+        ForeignKey(
+            "productos.id", name="fk_productos_fusionado_en_producto_id_productos"
+        )
     )
     #: catalogo | venta_rapida | compra | import
-    origen_alta: Mapped[str] = mapped_column(String(24), nullable=False, server_default="catalogo")
+    origen_alta: Mapped[str] = mapped_column(
+        String(24), nullable=False, server_default="catalogo"
+    )
     creado_por_usuario_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios.id", name="fk_productos_creado_por_usuario_id_usuarios")
     )
@@ -126,7 +142,9 @@ class ProductoAlias(Base):
 
     __tablename__ = "productos_alias"
     __table_args__ = (
-        UniqueConstraint("alias_normalizado", "es_original", name="uq_productos_alias_norm"),
+        UniqueConstraint(
+            "alias_normalizado", "es_original", name="uq_productos_alias_norm"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -135,7 +153,9 @@ class ProductoAlias(Base):
     )
     alias: Mapped[str] = mapped_column(String(200), nullable=False)
     alias_normalizado: Mapped[str] = mapped_column(String(200), nullable=False)
-    es_original: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    es_original: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
     origen: Mapped[str] = mapped_column(String(32), nullable=False)
 
     producto: Mapped[Producto] = relationship("Producto", back_populates="alias")

@@ -53,7 +53,9 @@ class Proveedor(Base, MarcasDeTiempo):
     telefono: Mapped[str | None] = mapped_column(String(50))
     email: Mapped[str | None] = mapped_column(String(200))
     estado: Mapped[EstadoRegistro] = mapped_column(
-        enum_pg(EstadoRegistro), nullable=False, server_default=EstadoRegistro.ACTIVO.value
+        enum_pg(EstadoRegistro),
+        nullable=False,
+        server_default=EstadoRegistro.ACTIVO.value,
     )
     notas: Mapped[str | None] = mapped_column(Text)
 
@@ -82,7 +84,8 @@ class LoteCompra(Base):
     diferencia_usd: Mapped[Decimal | None] = mapped_column(
         Numeric(14, 2),
         Computed(
-            "COALESCE(subtotal_declarado_usd, 0) - subtotal_calculado_usd", persisted=True
+            "COALESCE(subtotal_declarado_usd, 0) - subtotal_calculado_usd",
+            persisted=True,
         ),
     )
     texto_original: Mapped[str | None] = mapped_column(Text)
@@ -136,7 +139,9 @@ class PagoCompra(Base):
     tasa_aplicada: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
     canal: Mapped[CanalPago | None] = mapped_column(enum_pg(CanalPago))
     referencia: Mapped[str | None] = mapped_column(String(64))
-    registrado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    registrado_por_usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

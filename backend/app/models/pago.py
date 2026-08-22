@@ -35,7 +35,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models._comun import enum_pg
-from app.models.enums import CanalPago, ConfianzaDato, Moneda, OrigenTasa, TipoMovimientoPago
+from app.models.enums import (
+    CanalPago,
+    ConfianzaDato,
+    Moneda,
+    OrigenTasa,
+    TipoMovimientoPago,
+)
 
 
 class Pago(Base):
@@ -52,7 +58,8 @@ class Pago(Base):
             name="tasa_coherente_con_moneda",
         ),
         CheckConstraint(
-            "tipo <> 'reverso' OR anula_pago_id IS NOT NULL", name="reverso_apunta_a_pago"
+            "tipo <> 'reverso' OR anula_pago_id IS NOT NULL",
+            name="reverso_apunta_a_pago",
         ),
         # Guardia de doble contabilización. Compuesto y no solo por referencia
         # porque las referencias reales son de 3-4 dígitos ('172', '542', '666')
@@ -76,7 +83,9 @@ class Pago(Base):
     cuota_id: Mapped[int | None] = mapped_column(ForeignKey("cuotas.id"))
     fecha: Mapped[date] = mapped_column(Date, nullable=False)
     tipo: Mapped[TipoMovimientoPago] = mapped_column(
-        enum_pg(TipoMovimientoPago), nullable=False, server_default=TipoMovimientoPago.ABONO.value
+        enum_pg(TipoMovimientoPago),
+        nullable=False,
+        server_default=TipoMovimientoPago.ABONO.value,
     )
 
     moneda: Mapped[Moneda] = mapped_column(enum_pg(Moneda), nullable=False)
@@ -105,7 +114,9 @@ class Pago(Base):
         ForeignKey("pagos.id", name="fk_pagos_anula_pago_id_pagos")
     )
     motivo: Mapped[str | None] = mapped_column(Text)
-    registrado_por_usuario_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    registrado_por_usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
     notas: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

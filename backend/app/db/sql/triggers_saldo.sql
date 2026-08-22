@@ -54,6 +54,9 @@ CREATE OR REPLACE FUNCTION fn_recalcular_totales_venta() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
     v_venta_id integer := COALESCE(NEW.venta_id, OLD.venta_id);
+    v_total    numeric(14,2);
+    v_con_plan boolean;
+    v_vence    date;
 BEGIN
     UPDATE ventas v
        SET total_usd = COALESCE(i.total, 0),
@@ -65,6 +68,25 @@ BEGIN
              WHERE venta_id = v_venta_id
            ) i
      WHERE v.id = v_venta_id;
+
+    -- La cuota implicita del plazo por defecto.
+    --
+    -- Va aca y no en la capa de compatibilidad porque es parte del modelo, no un
+    -- parche: TODA venta tiene al menos una cuota, para que la consulta de
+    -- antiguedad tenga un solo camino de codigo con plan y sin plan. Sin esto, una
+    -- venta recien registrada queda fuera de la cobranza, que es exactamente el
+    -- agujero que este sistema viene a cerrar.
+    SELECT total_usd, tiene_plan_cuotas, fecha_vencimiento
+      INTO v_total, v_con_plan, v_vence
+      FROM ventas WHERE id = v_venta_id;
+
+    IF v_total > 0 AND NOT COALESCE(v_con_plan, FALSE) THEN
+        INSERT INTO cuotas (venta_id, numero, fecha_vencimiento, monto_usd, implicita)
+        VALUES (v_venta_id, 1, v_vence, v_total, TRUE)
+        ON CONFLICT (venta_id, numero) DO UPDATE
+           SET monto_usd = EXCLUDED.monto_usd
+         WHERE cuotas.implicita;
+    END IF;
 
     PERFORM fn_recalcular_saldo_venta(v_venta_id);
     RETURN NULL;
