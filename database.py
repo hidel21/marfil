@@ -61,36 +61,13 @@ class Venta(Base):
     deuda = Column(Numeric(10, 2), nullable=False, default=0)
     estatus = Column(String(20), nullable=False, default="PENDIENTE")
     total = Column(Numeric(10, 2), nullable=False, default=0)
-    items = relationship("ItemVenta", back_populates="venta", cascade="all, delete-orphan")
-    cuotas = relationship("Cuota", back_populates="venta", cascade="all, delete-orphan")
     pagos = relationship("Pago", back_populates="venta", cascade="all, delete-orphan")
 
 
-class ItemVenta(Base):
-    __tablename__ = "items_venta"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    venta_id = Column(Integer, ForeignKey("ventas.id"), nullable=False)
-    producto_id = Column(Integer, ForeignKey("productos.id"), nullable=False)
-    cantidad = Column(Integer, nullable=False)
-    precio_unitario = Column(Numeric(10, 2), nullable=False)
-    subtotal = Column(Numeric(10, 2), nullable=False)
-
-    venta = relationship("Venta", back_populates="items")
-    producto = relationship("Producto")
-
-
-class Cuota(Base):
-    __tablename__ = "cuotas"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    venta_id = Column(Integer, ForeignKey("ventas.id"), nullable=False)
-    numero = Column(Integer, nullable=False)
-    fecha_vencimiento = Column(Date, nullable=False)
-    monto = Column(Numeric(10, 2), nullable=False)
-    estado = Column(String(20), nullable=False, default="pendiente")
-
-    venta = relationship("Venta", back_populates="cuotas")
+# `ItemVenta` y `Cuota` vivian aca y nunca se usaron: 0 filas escritas, 0 leidas.
+# La revision 0001 de Alembic recrea `cuotas` con la forma que necesita el plan de
+# cuotas real y suelta `items_venta` en favor de `venta_items`, asi que estos dos
+# mapeos ya no corresponden a la base. Se quitan en vez de dejarlos mintiendo.
 
 
 class Pago(Base):
@@ -177,7 +154,7 @@ class GastoGeneral(Base):
 
 
 class ImportacionExcel(Base):
-    __tablename__ = "importaciones_excel"
+    __tablename__ = "importaciones"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     archivo = Column(String(255), nullable=False)
@@ -187,11 +164,14 @@ class ImportacionExcel(Base):
 
 
 class FilaExcel(Base):
-    __tablename__ = "filas_excel"
+    __tablename__ = "filas_importadas"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    importacion_id = Column(Integer, ForeignKey("importaciones_excel.id"), nullable=False)
-    pestaña = Column(String(200), nullable=False)
+    importacion_id = Column(Integer, ForeignKey("importaciones.id"), nullable=False)
+    # La columna en la base se llama `hoja` desde la revision 0001 de Alembic:
+    # `pestaña` era un identificador no-ASCII en Postgres. El atributo Python
+    # conserva el nombre viejo para no tocar app.py.
+    pestaña = Column("hoja", String(64), nullable=False)
     numero_fila = Column(Integer, nullable=False)
     datos = Column(JSON, nullable=False)
 

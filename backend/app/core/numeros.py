@@ -52,7 +52,10 @@ def parsear_numero(valor: object) -> Decimal | None:
             texto = texto.replace(",", "")
     elif "," in texto:
         entero, decimal = texto.rsplit(",", 1)
-        texto = f"{entero.replace(',', '')}.{decimal}" if len(decimal) <= 2 else texto.replace(",", "")
+        if len(decimal) <= 2:
+            texto = f"{entero.replace(',', '')}.{decimal}"
+        else:
+            texto = texto.replace(",", "")
     elif texto.count(".") > 1:
         entero, decimal = texto.rsplit(".", 1)
         texto = f"{entero.replace('.', '')}.{decimal}"

@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
-
-from app.config import obtener_settings
-from app.db.base import Base
 
 # Importar todos los modelos para que Base.metadata esté completo.
 import app.models  # noqa: F401
+from alembic import context
+from app.config import obtener_settings
+from app.db.base import Base
 
 config = context.config
 if config.config_file_name is not None:

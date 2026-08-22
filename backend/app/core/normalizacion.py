@@ -84,8 +84,9 @@ def telefono_e164(texto: object) -> str:
         raise TelefonoInvalido(f"largo inesperado para un móvil venezolano: {texto!r}")
 
     if nacional[:3] not in OPERADORAS_MOVILES_VE:
+        operadoras = ", ".join(OPERADORAS_MOVILES_VE)
         raise TelefonoInvalido(
-            f"'{nacional[:3]}' no es una operadora móvil venezolana ({', '.join(OPERADORAS_MOVILES_VE)})"
+            f"'{nacional[:3]}' no es una operadora móvil venezolana ({operadoras})"
         )
     return f"+{PREFIJO_PAIS_VE}{nacional}"
 
