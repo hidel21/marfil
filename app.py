@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from math import isfinite
 from urllib.parse import quote_plus
@@ -60,24 +61,89 @@ def render_metric_card(title: str, value: str, icon: str, _accent: str = "#7c3ae
     st.metric(title, value, icon=icon, border=True)
 
 
-def build_whatsapp_message(cliente: str, producto: str, deuda_usd: float, tasa_bcv: float) -> str:
+# Los datos de pago salen de configuración, nunca del código: antes se enviaban los
+# marcadores literales "V-XX.XXX.XXX" y "04XX-XXX-XXXX" a clientes reales.
+# Se configuran en .streamlit/secrets.toml:
+#
+#   [datos_pago]
+#   banco = "BNC (0191)"
+#   documento = "V-12.345.678"
+#   telefono = "0412-1234567"
+#   titular = "Nombre del titular"     # opcional
+DATOS_PAGO_REQUERIDOS = ("banco", "documento", "telefono")
+DATOS_PAGO_OPCIONALES = ("titular",)
+_PLACEHOLDER_RE = re.compile(r"X{2,}")
+
+DATOS_PAGO_ETIQUETAS = {
+    "banco": "Banco",
+    "documento": "C.I./RIF",
+    "telefono": "Teléfono",
+    "titular": "Titular",
+}
+
+
+def obtener_datos_pago() -> tuple[dict[str, str], list[str]]:
+    """Devuelve (datos, faltantes). Un valor con 'XX' cuenta como faltante."""
+    try:
+        seccion = st.secrets.get("datos_pago", {})
+    except Exception:
+        seccion = {}
+
+    datos: dict[str, str] = {}
+    for clave in DATOS_PAGO_REQUERIDOS + DATOS_PAGO_OPCIONALES:
+        try:
+            valor = seccion.get(clave, "")
+        except Exception:
+            valor = ""
+        datos[clave] = str(valor or "").strip()
+
+    faltantes = [
+        DATOS_PAGO_ETIQUETAS[clave]
+        for clave in DATOS_PAGO_REQUERIDOS
+        if not datos[clave] or _PLACEHOLDER_RE.search(datos[clave].upper())
+    ]
+    return datos, faltantes
+
+
+def build_datos_pago_block(datos: dict[str, str]) -> str:
+    lineas = [f"- {DATOS_PAGO_ETIQUETAS[c]}: {datos[c]}" for c in DATOS_PAGO_REQUERIDOS]
+    if datos.get("titular"):
+        lineas.insert(0, f"- {DATOS_PAGO_ETIQUETAS['titular']}: {datos['titular']}")
+    return "\n".join(lineas)
+
+
+def build_whatsapp_message(
+    cliente: str,
+    producto: str,
+    deuda_usd: float,
+    tasa_bcv: float,
+    datos_pago: dict[str, str],
+) -> str:
     monto_bs = deuda_usd * tasa_bcv
     message = (
         f"Hola *{cliente}*, te saludamos de *SISTEMA MARFIL* 🍾.\n"
         f"Te recordamos que mantienes un saldo pendiente de *${deuda_usd:,.2f} USD* correspondiente a tu compra de *{producto}*.\n\n"
         f"📌 *Tasa BCV del día:* Bs. {tasa_bcv:,.2f}\n"
         f"📌 *Total en Bolívares:* Bs. {monto_bs:,.2f}\n\n"
-        f"💳 *Datos de Pago Móvil BNC:*\n"
-        f"- Banco: BNC (0191)\n"
-        f"- C.I.: V-XX.XXX.XXX\n"
-        f"- Teléfono: 04XX-XXX-XXXX\n\n"
+        f"💳 *Datos de Pago Móvil:*\n"
+        f"{build_datos_pago_block(datos_pago)}\n\n"
         "¡Agradecemos tu confirmación!"
     )
     return quote_plus(message)
 
 
-def build_whatsapp_url(cliente: str, producto: str, deuda_usd: float, tasa_bcv: float) -> str:
-    encoded = build_whatsapp_message(cliente, producto, deuda_usd, tasa_bcv)
+def build_whatsapp_url(
+    cliente: str,
+    producto: str,
+    deuda_usd: float,
+    tasa_bcv: float,
+    datos_pago: dict[str, str],
+) -> str | None:
+    """None cuando los datos de pago están incompletos: sin datos no se envía nada."""
+    _, faltantes = obtener_datos_pago()
+    if faltantes:
+        return None
+    encoded = build_whatsapp_message(cliente, producto, deuda_usd, tasa_bcv, datos_pago)
     return f"https://wa.me/?text={encoded}"
 
 
@@ -437,6 +503,15 @@ if selected_section == "📲 Cobranza & WhatsApp":
     st.markdown(
         "Revisa el estado de cobro de clientes y genera recordatorios automáticos por WhatsApp con un solo click."
     )
+
+    datos_pago, datos_pago_faltantes = obtener_datos_pago()
+    if datos_pago_faltantes:
+        st.warning(
+            "No se pueden enviar recordatorios: faltan los datos de pago "
+            f"({', '.join(datos_pago_faltantes)}). Cargalos en la sección "
+            "`[datos_pago]` de `.streamlit/secrets.toml`.",
+            icon="⚠️",
+        )
     try:
         tasa_usd_bcv, _, _, _ = obtener_todas_las_tasas()
         cobranza_df = load_pending_collections_dataframe()
@@ -479,7 +554,9 @@ if selected_section == "📲 Cobranza & WhatsApp":
                 pagos_count = int(row["pagos_count"])
                 semaforo = row["semaforo"]
                 total_bs = deuda * tasa_usd_bcv
-                whatsapp_url = build_whatsapp_url(cliente, producto, deuda, tasa_usd_bcv)
+                whatsapp_url = build_whatsapp_url(
+                    cliente, producto, deuda, tasa_usd_bcv, datos_pago
+                )
 
                 with st.expander(f"{semaforo} — {cliente} • ${deuda:,.2f}", expanded=False):
                     st.markdown(
@@ -488,7 +565,18 @@ if selected_section == "📲 Cobranza & WhatsApp":
                         f"**Pagos Registrados:** {pagos_count}  \\"
                         f"**Total en Bolívares:** Bs. {total_bs:,.2f}"
                     )
-                    st.link_button("📲 Enviar Recordatorio", whatsapp_url, width="stretch")
+                    if whatsapp_url:
+                        st.link_button(
+                            "📲 Enviar Recordatorio", whatsapp_url, width="stretch"
+                        )
+                    else:
+                        st.button(
+                            "📲 Enviar Recordatorio",
+                            disabled=True,
+                            width="stretch",
+                            key=f"wa_bloqueado_{row.name}",
+                            help="Cargá los datos de pago para poder enviar recordatorios.",
+                        )
     except Exception as exc:
         st.error(f"No se pudo cargar el módulo de cobranza: {exc}")
 elif selected_section == "📄 Recibos & Reportes":

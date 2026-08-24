@@ -1,0 +1,18 @@
+name: Operación diaria
+
+on:
+  schedule:
+    - cron: "15 9 * * *"
+      timezone: "America/Caracas"
+  workflow_dispatch:
+
+jobs:
+  tareas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capturar tasa
+        run: curl --fail-with-body --retry 2 -X POST -H "X-Job-Secret:${{ secrets.MARFIL_JOB_SECRET }}" "${{ secrets.MARFIL_URL }}/api/v1/automatizaciones/cron/snapshot_tasa"
+      - name: Conciliar libros
+        run: curl --fail-with-body --retry 2 -X POST -H "X-Job-Secret:${{ secrets.MARFIL_JOB_SECRET }}" "${{ secrets.MARFIL_URL }}/api/v1/automatizaciones/cron/conciliacion"
+      - name: Limpiar sesiones vencidas
+        run: curl --fail-with-body --retry 2 -X POST -H "X-Job-Secret:${{ secrets.MARFIL_JOB_SECRET }}" "${{ secrets.MARFIL_URL }}/api/v1/automatizaciones/cron/limpiar_sesiones"

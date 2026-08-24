@@ -10,6 +10,10 @@ DEFAULT_BCV_EUR_RATE = 805.50
 DEFAULT_BINANCE_USDT_RATE = 838.00
 DEFAULT_USDT_COM_VE_RATE = 870.00
 USDT_COM_VE_URL = "https://www.usdt.com.ve/api/v1/rates/current"
+# Reemplaza a pydolarve.org/api/v1/dollar, que devuelve 404: toda llamada caia al
+# fallback y el euro quedaba fijo en el valor hardcodeado.
+DOLARAPI_EUR_URL = "https://ve.dolarapi.com/v1/euros"
+DOLARAPI_USD_URL = "https://ve.dolarapi.com/v1/dolares"
 
 
 def _parse_positive_float(value):
@@ -53,19 +57,34 @@ def obtener_tasas_con_estado() -> tuple[Tuple[float, float, float, float], tuple
         tasa_binance = DEFAULT_BINANCE_USDT_RATE
         tasa_usdt_com_ve = DEFAULT_USDT_COM_VE_RATE
 
-    try:
-        response = requests.get("https://pydolarve.org/api/v1/dollar?page=bcv", timeout=5)
+    def _oficial(url: str) -> float | None:
+        """Toma el 'promedio' de la entrada con fuente 'oficial' de ve.dolarapi.com."""
+        response = requests.get(url, timeout=5)
         response.raise_for_status()
         data = response.json()
-        monedas = data.get("monedas", {})
-        eur_data = monedas.get("eur", {})
-        if isinstance(eur_data, dict):
-            price = _parse_positive_float(eur_data.get("price"))
-            if price is not None:
-                tasa_bcv_eur = price
-                tasas_de_respaldo.discard("Euro BCV")
+        entradas = data if isinstance(data, list) else [data]
+        for entrada in entradas:
+            if isinstance(entrada, dict) and entrada.get("fuente") == "oficial":
+                return _parse_positive_float(entrada.get("promedio"))
+        return None
+
+    try:
+        price = _oficial(DOLARAPI_EUR_URL)
+        if price is not None:
+            tasa_bcv_eur = price
+            tasas_de_respaldo.discard("Euro BCV")
     except Exception:
         tasa_bcv_eur = DEFAULT_BCV_EUR_RATE
+
+    # Segunda fuente para el BCV en dolares: solo si usdt.com.ve no respondio.
+    if "Dólar BCV" in tasas_de_respaldo:
+        try:
+            price = _oficial(DOLARAPI_USD_URL)
+            if price is not None:
+                tasa_bcv_usd = price
+                tasas_de_respaldo.discard("Dólar BCV")
+        except Exception:
+            tasa_bcv_usd = DEFAULT_BCV_USD_RATE
 
     return (
         (
