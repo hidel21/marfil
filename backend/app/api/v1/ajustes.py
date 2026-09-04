@@ -195,7 +195,10 @@ def tasas(db: SesionDb, actual: Usuario, limite: int = 30):
 
 class TasaEntrada(BaseModel):
     fecha: date
-    tipo: str = Field(default="bcv", pattern="^(bcv|binance|usdt_ve|paralelo)$")
+    tipo: str = Field(
+        default="bcv",
+        pattern="^(bcv|paralelo|euro|euro_paralelo|usdt_ve|binance)$",
+    )
     valor: Decimal = Field(gt=0)
     motivo: str = Field(min_length=5, max_length=500)
 

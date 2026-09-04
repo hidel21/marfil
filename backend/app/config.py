@@ -56,7 +56,10 @@ class Settings(BaseSettings):
     #: protegido desde un cron externo.
     jobs_habilitados: bool = Field(default=False)
     job_secret: str = Field(default="")
-    tasa_api_url: str = Field(default="https://ve.dolarapi.com/v1/dolares/oficial")
+    # `tasa_api_url` vivia aca cuando la captura era una sola URL. Ahora son cinco
+    # series de dos proveedores y cada una tiene su ruta; las rutas viven en
+    # `app/integrations/tasas/`. Un ajuste que ya nadie lee es una trampa: quien lo
+    # cambiara esperando mover la fuente no cambiaria nada.
     frontend_dir: str = Field(default="")
 
     # Interruptor de emergencia del plan (fase 4): deja la API sin escrituras.
