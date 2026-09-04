@@ -173,17 +173,26 @@ export function useCrearVenta() {
   });
 }
 
-export function useTasaSugerida() {
+/**
+ * La tasa que corresponde a **la fecha del pago**, no a hoy.
+ *
+ * Antes no se pasaba `en_fecha` y el formulario prefijaba siempre la tasa del día:
+ * cargar un pago del 10 de agosto lo convertía a la tasa de septiembre. Como la tasa
+ * se congela en el pago y no se recalcula nunca, ese error queda para siempre en el
+ * libro.
+ */
+export function useTasaSugerida(enFecha: string, tipo: string) {
   return useQuery({
-    queryKey: ["pagos", "tasa"],
+    queryKey: ["pagos", "tasa", enFecha, tipo],
     queryFn: () =>
       api.get<{
         disponible: boolean;
+        tipo?: string;
         valor?: string;
         procedencia?: string;
         es_respaldo?: boolean;
         mensaje?: string;
-      }>("/pagos/tasa-sugerida"),
+      }>("/pagos/tasa-sugerida", { en_fecha: enFecha, tipo }),
     staleTime: 5 * MINUTO,
   });
 }

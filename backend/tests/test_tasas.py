@@ -190,3 +190,64 @@ def test_la_api_si_actualiza_lo_que_ella_misma_puso(conn):
         {"f": date(2026, 3, 11)},
     ).scalar_one()
     assert valor == Decimal("200")
+
+
+# ------------------------------------------------------- la tasa sigue a la fecha
+def test_se_usa_la_tasa_de_la_fecha_del_pago_y_no_la_de_hoy(conn):
+    """El error que motivo el cambio: un pago de agosto convertido a tasa de septiembre.
+
+    Como la tasa se congela en el pago y no se recalcula nunca, equivocarla deja el
+    libro mal para siempre.
+    """
+    from app.jobs.operativos import SQL_GUARDAR_TASA
+    from app.services.pagos import resolver_tasa
+
+    for fecha, valor in ((date(2026, 8, 10), "530.00"), (date(2026, 9, 4), "807.39")):
+        conn.execute(
+            SQL_GUARDAR_TASA,
+            {"f": fecha, "t": "bcv", "v": Decimal(valor), "o": "api_dolarapi",
+             "c": "alta", "p": "{}"},
+        )
+
+    assert resolver_tasa(conn, en_fecha=date(2026, 8, 10)).valor == Decimal("530.00")
+    assert resolver_tasa(conn, en_fecha=date(2026, 9, 4)).valor == Decimal("807.39")
+
+
+def test_un_dia_sin_publicacion_toma_la_anterior_y_lo_dice(conn):
+    """El BCV no publica los domingos; el pago del domingo va con la del viernes."""
+    from app.jobs.operativos import SQL_GUARDAR_TASA
+    from app.services.pagos import resolver_tasa
+
+    conn.execute(
+        SQL_GUARDAR_TASA,
+        {"f": date(2026, 5, 8), "t": "bcv", "v": Decimal("400"), "o": "api_dolarapi",
+         "c": "alta", "p": "{}"},
+    )
+    t = resolver_tasa(conn, en_fecha=date(2026, 5, 10))
+    assert t.valor == Decimal("400")
+    assert "hace 2" in t.procedencia
+    assert t.es_respaldo, "dos dias de atraso se marca para que se revise"
+
+
+def test_cada_serie_resuelve_su_propio_valor(conn):
+    from app.jobs.operativos import SQL_GUARDAR_TASA
+    from app.services.pagos import resolver_tasa
+
+    for tipo, valor in (("bcv", "807.39"), ("usdt_ve", "957.10"), ("euro", "938.45")):
+        conn.execute(
+            SQL_GUARDAR_TASA,
+            {"f": date(2026, 7, 1), "t": tipo, "v": Decimal(valor), "o": "api_dolarapi",
+             "c": "alta", "p": "{}"},
+        )
+    for tipo, valor in (("bcv", "807.39"), ("usdt_ve", "957.10"), ("euro", "938.45")):
+        t = resolver_tasa(conn, en_fecha=date(2026, 7, 1), tipo=tipo)
+        assert t.valor == Decimal(valor), tipo
+
+
+def test_una_serie_inventada_no_pasa_silenciosamente(conn):
+    from app.api.errors import ErrorNegocio
+    from app.services.pagos import resolver_tasa
+
+    with pytest.raises(ErrorNegocio) as exc:
+        resolver_tasa(conn, en_fecha=date(2026, 7, 1), tipo="dolar_blue")
+    assert exc.value.codigo == "TIPO_TASA_INVALIDO"

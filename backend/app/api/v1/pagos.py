@@ -25,6 +25,11 @@ class PagoEntrada(BaseModel):
     monto_moneda: Decimal = Field(gt=0, description="Bolívares o dólares, según el canal")
     tasa_aplicada: Decimal | None = Field(default=None, gt=0)
     tasa_id: int | None = None
+    #: Que serie usar para convertir. Solo aplica a los canales en bolivares.
+    tipo_tasa: str = Field(default=svc.TIPO_TASA_POR_DEFECTO)
+    #: Obligatorio solo con el canal `otro`, que puede ser de cualquiera de los dos
+    #: lados. El resto de canales ya define su moneda.
+    en_bolivares: bool | None = None
     monto_usd: Decimal | None = Field(
         default=None, description="Opcional: el servidor lo recalcula y verifica"
     )
@@ -45,6 +50,8 @@ def registrar(datos: PagoEntrada, db: SesionDb, actual: AdminOVendedor, _: Puede
         monto_moneda=datos.monto_moneda,
         tasa_manual=datos.tasa_aplicada,
         tasa_id=datos.tasa_id,
+        tipo_tasa=datos.tipo_tasa,
+        en_bolivares_declarado=datos.en_bolivares,
         monto_usd_cliente=datos.monto_usd,
         referencia=datos.referencia,
         cuota_id=datos.cuota_id,
@@ -58,7 +65,12 @@ def registrar(datos: PagoEntrada, db: SesionDb, actual: AdminOVendedor, _: Puede
 
 
 @router.get("/tasa-sugerida")
-def tasa_sugerida(db: SesionDb, actual: AdminOVendedor, en_fecha: date | None = None):
+def tasa_sugerida(
+    db: SesionDb,
+    actual: AdminOVendedor,
+    en_fecha: date | None = None,
+    tipo: str = svc.TIPO_TASA_POR_DEFECTO,
+):
     """La tasa que el formulario prefila, con su procedencia visible.
 
     `es_respaldo` es lo que la UI muestra como advertencia: la app vieja caía a un
@@ -68,11 +80,12 @@ def tasa_sugerida(db: SesionDb, actual: AdminOVendedor, en_fecha: date | None = 
     from app.api.errors import ErrorNegocio
 
     try:
-        t = svc.resolver_tasa(db, en_fecha=en_fecha or date.today())
+        t = svc.resolver_tasa(db, en_fecha=en_fecha or date.today(), tipo=tipo)
     except ErrorNegocio as exc:
         return {"disponible": False, "codigo": exc.codigo, "mensaje": exc.mensaje}
     return {
         "disponible": True,
+        "tipo": tipo,
         "valor": t.valor,
         "origen": t.origen.value,
         "tasa_id": t.tasa_id,

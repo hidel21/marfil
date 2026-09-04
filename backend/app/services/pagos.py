@@ -33,6 +33,20 @@ from app.models.enums import CanalPago, Moneda, OrigenTasa
 CANALES_EN_BOLIVARES = {CanalPago.PAGO_MOVIL, CanalPago.TRANSFERENCIA, CanalPago.EFECTIVO_BS}
 #: Canales que se cobran en dolares o equivalente: no llevan tasa.
 CANALES_EN_DIVISA = {CanalPago.EFECTIVO_USD, CanalPago.ZELLE, CanalPago.BINANCE, CanalPago.USDT}
+#: `otro` no cae de un lado ni del otro: es justamente el canal que no sabemos. Quien
+#: registra tiene que decir en que moneda cobro, porque adivinar mal convierte un
+#: pago de 18.000 Bs en 18.000 dolares.
+CANALES_AMBIGUOS = {CanalPago.OTRO}
+
+#: Las series que se pueden usar para convertir, con el nombre que ve el usuario.
+TIPOS_TASA = {
+    "bcv": "BCV",
+    "paralelo": "paralelo",
+    "usdt_ve": "USDT",
+    "euro": "euro oficial",
+    "euro_paralelo": "euro paralelo",
+}
+TIPO_TASA_POR_DEFECTO = "bcv"
 
 
 @dataclass
@@ -49,6 +63,7 @@ def resolver_tasa(
     sesion: Session,
     *,
     en_fecha: date,
+    tipo: str = TIPO_TASA_POR_DEFECTO,
     tasa_manual: Decimal | None = None,
     tasa_id: int | None = None,
 ) -> TasaResuelta:
@@ -81,17 +96,28 @@ def resolver_tasa(
             )
         return TasaResuelta(tasa_manual, OrigenTasa.MANUAL, None, "Tasa ingresada a mano")
 
+    if tipo not in TIPOS_TASA:
+        raise ErrorNegocio(
+            "TIPO_TASA_INVALIDO",
+            f"No conozco la tasa {tipo!r}.",
+            campo="tipo_tasa",
+            sugerencia=f"Las disponibles son: {', '.join(TIPOS_TASA)}.",
+        )
+    # `fecha <= :f` y no `fecha = :f`: el BCV no publica fines de semana ni feriados,
+    # y un pago del domingo se convierte con la tasa del viernes, que es la que
+    # regia. Cuanto se retrocedio se le dice al usuario en `procedencia`.
     fila = sesion.execute(
         text(
             "SELECT id, valor, fecha, origen::text AS origen FROM tasas_cambio "
-            "WHERE tipo = 'bcv' AND fecha <= :f ORDER BY fecha DESC LIMIT 1"
+            "WHERE tipo = CAST(:t AS tipo_tasa) AND fecha <= :f "
+            "ORDER BY fecha DESC LIMIT 1"
         ),
-        {"f": en_fecha},
+        {"f": en_fecha, "t": tipo},
     ).one_or_none()
     if fila is None:
         raise ErrorNegocio(
             "SIN_TASA_DISPONIBLE",
-            "No hay ninguna tasa BCV registrada para esa fecha.",
+            f"No hay ninguna tasa {TIPOS_TASA[tipo]} registrada para esa fecha.",
             campo="tasa_aplicada",
             sugerencia=(
                 "Ingresá la tasa a mano o esperá el próximo snapshot automático. "
@@ -104,8 +130,8 @@ def resolver_tasa(
         fila.valor,
         OrigenTasa(fila.origen),
         fila.id,
-        f"Tasa BCV del {fila.fecha:%d/%m/%Y}"
-        + (f" (de hace {vieja} día(s))" if vieja else " (de hoy)"),
+        f"Tasa {TIPOS_TASA[tipo]} del {fila.fecha:%d/%m/%Y}"
+        + (f" (de hace {vieja} día(s))" if vieja else " (del mismo día)"),
         es_respaldo=vieja > 1,
     )
 
@@ -127,6 +153,9 @@ def registrar(
     monto_moneda: Decimal,
     tasa_manual: Decimal | None = None,
     tasa_id: int | None = None,
+    tipo_tasa: str = TIPO_TASA_POR_DEFECTO,
+    #: Solo lo mira el canal `otro`; el resto ya define su moneda.
+    en_bolivares_declarado: bool | None = None,
     monto_usd_cliente: Decimal | None = None,
     referencia: str | None = None,
     cuota_id: int | None = None,
@@ -154,9 +183,26 @@ def registrar(
             sugerencia="Si el cliente pagó de más, registrá el abono en otra venta suya.",
         )
 
-    en_bolivares = canal in CANALES_EN_BOLIVARES
+    if canal in CANALES_AMBIGUOS:
+        if en_bolivares_declarado is None:
+            raise ErrorNegocio(
+                "CANAL_SIN_MONEDA",
+                "Con el método 'Otro' hay que decir si el cobro fue en bolívares o en divisa.",
+                campo="canal",
+                sugerencia="Elegí 'Otro (en bolívares)' u 'Otro (en divisa)'.",
+            )
+        en_bolivares = en_bolivares_declarado
+    else:
+        en_bolivares = canal in CANALES_EN_BOLIVARES
+
     if en_bolivares:
-        tasa = resolver_tasa(sesion, en_fecha=fecha, tasa_manual=tasa_manual, tasa_id=tasa_id)
+        tasa = resolver_tasa(
+            sesion,
+            en_fecha=fecha,
+            tipo=tipo_tasa,
+            tasa_manual=tasa_manual,
+            tasa_id=tasa_id,
+        )
         moneda = Moneda.VES
         monto_usd = convertir_a_usd(monto_moneda, tasa.valor)
     else:

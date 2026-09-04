@@ -33,17 +33,38 @@ import { fecha } from "@/lib/formato";
  *    cada cobro en dólares en una estimación.
  */
 
+/**
+ * El `value` del select no es el canal a secas: `otro` puede cobrarse en bolívares o
+ * en divisa, y el enum del backend tiene un solo `otro`. Por eso la opción lleva
+ * sufijo en la UI y la moneda viaja aparte, en `en_bolivares`.
+ */
 const CANALES_BS = [
   { valor: "pago_movil", etiqueta: "Pago móvil" },
   { valor: "transferencia", etiqueta: "Transferencia" },
   { valor: "efectivo_bs", etiqueta: "Efectivo Bs" },
+  { valor: "otro:bs", etiqueta: "Otro (en bolívares)" },
 ];
 const CANALES_DIVISA = [
   { valor: "efectivo_usd", etiqueta: "Efectivo USD" },
   { valor: "zelle", etiqueta: "Zelle" },
   { valor: "binance", etiqueta: "Binance" },
   { valor: "usdt", etiqueta: "USDT" },
+  { valor: "otro:usd", etiqueta: "Otro (en divisa)" },
 ];
+
+/** Las series que el sistema captura a diario. El BCV es la referencia legal. */
+const TIPOS_TASA = [
+  { valor: "bcv", etiqueta: "Dólar BCV" },
+  { valor: "paralelo", etiqueta: "Dólar paralelo" },
+  { valor: "usdt_ve", etiqueta: "USDT" },
+  { valor: "euro", etiqueta: "Euro oficial" },
+  { valor: "euro_paralelo", etiqueta: "Euro paralelo" },
+];
+
+/** "otro:bs" y "otro:usd" son de la UI; el backend solo conoce "otro". */
+function canalReal(valor: string): string {
+  return valor.startsWith("otro:") ? "otro" : valor;
+}
 
 export default function PaginaAbono() {
   return (
@@ -65,11 +86,12 @@ function NuevoAbono() {
   const [canal, setCanal] = useState("pago_movil");
   const [monto, setMonto] = useState("");
   const [tasaManual, setTasaManual] = useState("");
+  const [tipoTasa, setTipoTasa] = useState("bcv");
   const [referencia, setReferencia] = useState("");
   const [permitirExcedente, setPermitirExcedente] = useState(false);
 
   const cobranza = useCobranza({ incluir_socios: true });
-  const tasa = useTasaSugerida();
+  const tasa = useTasaSugerida(fechaPago, tipoTasa);
   const registrar = useRegistrarPago();
 
   const enBolivares = CANALES_BS.some((c) => c.valor === canal);
@@ -98,8 +120,10 @@ function NuevoAbono() {
       const r = await registrar.mutateAsync({
         venta_id: ventaId,
         fecha: fechaPago,
-        canal,
+        canal: canalReal(canal),
         monto_moneda: monto,
+        ...(enBolivares ? { tipo_tasa: tipoTasa } : {}),
+        ...(canal.startsWith("otro:") ? { en_bolivares: enBolivares } : {}),
         ...(enBolivares && tasaManual ? { tasa_aplicada: tasaManual } : {}),
         ...(referencia.trim() ? { referencia: referencia.trim() } : {}),
         permitir_excedente: permitirExcedente,
@@ -195,6 +219,18 @@ function NuevoAbono() {
                 onChange={(e) => setMonto(e.target.value)}
               />
             </Campo>
+
+            {enBolivares && (
+              <Campo etiqueta="Tasa a usar">
+                <Select value={tipoTasa} onChange={(e) => { setTipoTasa(e.target.value); setTasaManual(""); }}>
+                  {TIPOS_TASA.map((t) => (
+                    <option key={t.valor} value={t.valor}>
+                      {t.etiqueta}
+                    </option>
+                  ))}
+                </Select>
+              </Campo>
+            )}
 
             {enBolivares && (
               <Campo
