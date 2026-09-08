@@ -127,6 +127,69 @@ class TelefonoEntrada(BaseModel):
     telefono: str = Field(min_length=7)
 
 
+@router.put("/{cliente_id}")
+def editar(
+    cliente_id: int,
+    datos: ClienteEntrada,
+    db: SesionDb,
+    actual: AdminOVendedor,
+    _: PuedeEscribir,
+):
+    """Corrige la ficha completa. Antes solo se podia cambiar el telefono.
+
+    El control de duplicados excluye al propio cliente: renombrar "Ana" a "Ana" no
+    puede chocar consigo mismo.
+    """
+    del actual
+    if not db.execute(
+        text("SELECT 1 FROM clientes WHERE id = :i"), {"i": cliente_id}
+    ).scalar():
+        raise NoEncontrado("ese cliente")
+
+    clave = clave_nombre(datos.nombre)
+    if db.execute(
+        text(
+            "SELECT 1 FROM clientes WHERE nombre_normalizado = :k AND id <> :i "
+            "AND estado <> 'fusionado'"
+        ),
+        {"k": clave, "i": cliente_id},
+    ).scalar():
+        raise Conflicto(
+            "CLIENTE_DUPLICADO",
+            f"Ya hay otro cliente que se llama así ({datos.nombre}).",
+            campo="nombre",
+            sugerencia="Si son la misma persona, fusionalos en vez de renombrar.",
+        )
+
+    telefono = None
+    if datos.telefono:
+        try:
+            telefono = telefono_e164(datos.telefono)
+        except TelefonoInvalido as exc:
+            raise ErrorNegocio("TELEFONO_INVALIDO", str(exc), campo="telefono") from exc
+
+    db.execute(
+        text(
+            "UPDATE clientes SET nombre = :n, nombre_normalizado = :k, "
+            "telefono_e164 = COALESCE(:t, telefono_e164), email = :e, "
+            "nivel_precio = CAST(:nivel AS nivel_precio), plazo_credito_dias = :plazo, "
+            "notas = :notas WHERE id = :i"
+        ),
+        {
+            "n": datos.nombre.strip(),
+            "k": clave,
+            "t": telefono,
+            "e": datos.email,
+            "nivel": datos.nivel_precio,
+            "plazo": datos.plazo_credito_dias,
+            "notas": datos.notas,
+            "i": cliente_id,
+        },
+    )
+    db.commit()
+    return {"cliente_id": cliente_id, "nombre": datos.nombre.strip()}
+
+
 @router.put("/{cliente_id}/telefono")
 def guardar_telefono(
     cliente_id: int,

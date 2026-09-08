@@ -21,7 +21,7 @@ from decimal import Decimal
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.errors import ErrorNegocio, NoEncontrado
+from app.api.errors import Conflicto, ErrorNegocio, NoEncontrado
 from app.core.dinero import cuantizar, repartir
 from app.models.enums import Moneda, NivelPrecio
 from app.services.parametros import entero
@@ -376,3 +376,105 @@ def plan_sugerido(
         )
         for i, monto in enumerate(montos)
     ]
+
+
+def anular(
+    sesion: Session,
+    *,
+    venta_id: int,
+    motivo: str,
+    usuario_id: int | None = None,
+) -> dict:
+    """Anula una venta devolviendo el stock, sin borrar nada.
+
+    Tres decisiones que vale la pena leer:
+
+    1. **No se borra la fila.** Queda `anulada_at` con autor y motivo, y la vista de
+       cobranza la excluye. Borrarla dejaria pagos apuntando a una venta que no
+       existe y la conciliacion sin cuadrar para siempre.
+
+    2. **Con abonos, no se anula.** Si la venta tiene plata cobrada, anularla sin mas
+       deja ese dinero registrado contra una venta que ya no vale. Hay que reversar
+       los abonos primero, uno por uno y con su motivo, que es justamente lo que
+       `pagos.reversar` sabe hacer. Preferimos el paso extra a un reverso implicito
+       que nadie autorizo.
+
+    3. **El stock vuelve por el libro, no por un UPDATE.** Se inserta un movimiento
+       de `devolucion` y el trigger recalcula `productos.stock` desde la suma del
+       libro. Asi el stock sigue teniendo respaldo y se puede explicar de donde
+       salio cada unidad.
+    """
+    venta = sesion.execute(
+        text(
+            "SELECT id, codigo, total_usd, anulada_at FROM ventas WHERE id = :i FOR UPDATE"
+        ),
+        {"i": venta_id},
+    ).one_or_none()
+    if venta is None:
+        raise NoEncontrado("esa venta")
+    if venta.anulada_at is not None:
+        raise Conflicto(
+            "VENTA_YA_ANULADA",
+            f"La venta {venta.codigo} ya estaba anulada.",
+        )
+
+    abonos = sesion.execute(
+        text(
+            "SELECT count(*) FILTER (WHERE tipo = 'abono') - "
+            "       count(*) FILTER (WHERE tipo = 'reverso') "
+            "FROM pagos WHERE venta_id = :v"
+        ),
+        {"v": venta_id},
+    ).scalar_one()
+    if abonos and abonos > 0:
+        raise Conflicto(
+            "VENTA_CON_ABONOS",
+            f"La venta {venta.codigo} tiene {abonos} abono(s) sin reversar.",
+            sugerencia=(
+                "Reversá cada abono con su motivo y después anulá la venta. Anularla "
+                "ahora dejaría ese dinero cobrado contra una venta que ya no vale."
+            ),
+        )
+
+    devueltos = 0
+    for item in sesion.execute(
+        text("SELECT producto_id, cantidad FROM venta_items WHERE venta_id = :v"),
+        {"v": venta_id},
+    ).all():
+        if item.producto_id is None or not item.cantidad:
+            continue
+        sesion.execute(
+            text(
+                "INSERT INTO movimientos_stock (producto_id, tipo, cantidad, saldo_despues, "
+                "referencia_tabla, referencia_id, usuario_id, notas) "
+                "VALUES (:p, 'devolucion', :c, "
+                "(SELECT stock FROM productos WHERE id = :p), 'ventas', :v, :u, :n)"
+            ),
+            {
+                "p": item.producto_id,
+                "c": item.cantidad,
+                "v": venta_id,
+                "u": usuario_id,
+                "n": f"Anulación de {venta.codigo}: {motivo}",
+            },
+        )
+        devueltos += item.cantidad
+
+    sesion.execute(
+        text(
+            "UPDATE ventas SET anulada_at = now(), anulada_por_usuario_id = :u, "
+            "motivo_anulacion = :m WHERE id = :i"
+        ),
+        {"u": usuario_id, "m": motivo, "i": venta_id},
+    )
+    # El estado_cobro lo deriva esta funcion; sin llamarla la venta seguiria
+    # apareciendo como pendiente hasta el proximo pago.
+    sesion.execute(text("SELECT fn_recalcular_saldo_venta(:i)"), {"i": venta_id})
+
+    return {
+        "venta_id": venta_id,
+        "codigo": venta.codigo,
+        "anulada": True,
+        "unidades_devueltas": devueltos,
+        "motivo": motivo,
+    }

@@ -1033,3 +1033,144 @@ def test_un_vendedor_no_puede_crear_usuarios(cliente_api, engine_api):
         json={"email": "x@marfil.test", "nombre": "X", "rol": "vendedor"},
     )
     assert r.status_code == 403
+
+
+# ------------------------------------------------------- anulaciones y ediciones
+def _venta_registrada(cliente_api, token, engine_api) -> tuple[int, int, int]:
+    """Una venta viva, con su cliente y producto. Devuelve (venta, producto, cliente)."""
+    cliente, producto = _semilla_venta(engine_api)
+    r = cliente_api.post(
+        "/api/v1/ventas",
+        headers=token,
+        json={
+            "cliente_id": cliente,
+            "fecha": str(date.today()),
+            "moneda_cotizacion": "USD",
+            "lineas": [{"producto_id": producto, "cantidad": 2, "precio_unitario_usd": "22.00"}],
+        },
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["venta_id"], producto, cliente
+
+
+def test_anular_una_venta_devuelve_el_stock_y_deja_autor(cliente_api, token, engine_api):
+    venta, producto, _ = _venta_registrada(cliente_api, token, engine_api)
+    with engine_api.begin() as c:
+        antes = c.execute(
+            text("SELECT stock FROM productos WHERE id = :i"), {"i": producto}
+        ).scalar_one()
+
+    r = cliente_api.post(
+        f"/api/v1/ventas/{venta}/anular",
+        headers=token,
+        json={"motivo": "el cliente devolvió la mercancía"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["unidades_devueltas"] == 2
+
+    with engine_api.begin() as c:
+        fila = c.execute(
+            text(
+                "SELECT v.anulada_at IS NOT NULL AS anulada, v.motivo_anulacion, "
+                "v.anulada_por_usuario_id, p.stock, "
+                "(SELECT estado_cobro::text FROM ventas WHERE id = v.id) AS estado "
+                "FROM ventas v JOIN productos p ON p.id = :p WHERE v.id = :v"
+            ),
+            {"v": venta, "p": producto},
+        ).one()
+    assert fila.anulada
+    assert fila.motivo_anulacion == "el cliente devolvió la mercancía"
+    assert fila.anulada_por_usuario_id is not None, "queda quién lo hizo"
+    assert fila.stock == antes + 2, "el stock vuelve por el libro"
+    assert fila.estado == "anulada"
+
+
+def test_no_se_anula_dos_veces(cliente_api, token, engine_api):
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    cuerpo = {"motivo": "cargada por equivocación"}
+    primera = cliente_api.post(f"/api/v1/ventas/{venta}/anular", headers=token, json=cuerpo)
+    assert primera.status_code == 200
+    r = cliente_api.post(f"/api/v1/ventas/{venta}/anular", headers=token, json=cuerpo)
+    assert r.status_code == 409
+    assert r.json()["codigo"] == "VENTA_YA_ANULADA"
+
+
+def test_una_venta_con_abonos_no_se_anula_sin_reversarlos(cliente_api, token, engine_api):
+    """Anularla dejaría dinero cobrado contra una venta que ya no vale."""
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    pago = cliente_api.post(
+        "/api/v1/pagos",
+        headers=token,
+        json={
+            "venta_id": venta,
+            "fecha": str(date.today()),
+            "canal": "efectivo_usd",
+            "monto_moneda": "10.00",
+        },
+    )
+    assert pago.status_code == 201, pago.text
+
+    r = cliente_api.post(
+        f"/api/v1/ventas/{venta}/anular", headers=token, json={"motivo": "quiero anularla"}
+    )
+    assert r.status_code == 409
+    assert r.json()["codigo"] == "VENTA_CON_ABONOS"
+
+    # Reversado el abono, la anulación procede.
+    assert cliente_api.post(
+        f"/api/v1/pagos/{pago.json()['pago_id']}/reversar",
+        headers=token,
+        json={"motivo": "pago mal cargado"},
+    ).status_code == 201
+    assert cliente_api.post(
+        f"/api/v1/ventas/{venta}/anular", headers=token, json={"motivo": "ahora sí"}
+    ).status_code == 200
+
+
+def test_el_motivo_de_anulacion_no_puede_ser_vacio(cliente_api, token, engine_api):
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    r = cliente_api.post(f"/api/v1/ventas/{venta}/anular", headers=token, json={"motivo": "x"})
+    assert r.status_code == 422
+
+
+def test_editar_un_cliente_completo(cliente_api, token, engine_api):
+    cliente, _ = _semilla_venta(engine_api)
+    r = cliente_api.put(
+        f"/api/v1/clientes/{cliente}",
+        headers=token,
+        json={
+            "nombre": f"Renombrado {uuid4().hex[:6]}",
+            "nivel_precio": "revendedor",
+            "plazo_credito_dias": 30,
+            "notas": "paga puntual",
+        },
+    )
+    assert r.status_code == 200, r.text
+    with engine_api.begin() as c:
+        fila = c.execute(
+            text(
+                "SELECT nivel_precio::text AS nivel, plazo_credito_dias, notas "
+                "FROM clientes WHERE id = :i"
+            ),
+            {"i": cliente},
+        ).one()
+    assert fila.nivel == "revendedor"
+    assert fila.plazo_credito_dias == 30
+    assert fila.notas == "paga puntual"
+
+
+def test_un_producto_descatalogado_no_se_ofrece_al_vender(cliente_api, token, engine_api):
+    _, producto = _semilla_venta(engine_api)
+    assert cliente_api.put(
+        f"/api/v1/productos/{producto}",
+        headers=token,
+        json={"estado": "descatalogado"},
+    ).status_code in (200, 204)
+
+    visibles = cliente_api.get("/api/v1/productos?limite=500", headers=token).json()
+    assert producto not in [p["producto_id"] for p in visibles]
+
+    con_todos = cliente_api.get(
+        "/api/v1/productos?limite=500&incluir_descatalogados=true", headers=token
+    ).json()
+    assert producto in [p["producto_id"] for p in con_todos], "se puede ver para reactivarlo"

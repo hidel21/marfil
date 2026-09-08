@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from app.api.deps import AdminOVendedor, AlcanceDatos, PuedeEscribir, SesionDb
+from app.api.deps import AdminOVendedor, AlcanceDatos, PuedeEscribir, SesionDb, SoloAdmin
 from app.api.errors import NoEncontrado
 from app.models.enums import Moneda, NivelPrecio
 from app.services import ventas as svc
@@ -147,6 +147,28 @@ def plan_sugerido(datos: PlanSugeridoEntrada):
         ],
         "suma": sum(c.monto_usd for c in cuotas),
     }
+
+
+class AnulacionEntrada(BaseModel):
+    motivo: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/{venta_id}/anular")
+def anular(
+    venta_id: int,
+    datos: AnulacionEntrada,
+    db: SesionDb,
+    actual: SoloAdmin,
+    _: PuedeEscribir,
+):
+    """Anula una venta y devuelve su stock. Solo un socio, y con motivo escrito.
+
+    El motivo no es burocracia: es lo que despues explica, en Auditoria, por que un
+    mes tuvo menos ventas de las que se recordaban.
+    """
+    resultado = svc.anular(db, venta_id=venta_id, motivo=datos.motivo, usuario_id=actual.id)
+    db.commit()
+    return resultado
 
 
 @router.get("")

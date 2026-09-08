@@ -172,9 +172,15 @@ def listar(
     q: str | None = None,
     sin_costo: bool = False,
     por_revisar: bool = False,
+    incluir_descatalogados: bool = False,
     limite: int = Query(default=100, le=500),
 ):
-    condiciones, params = ["TRUE"], {"limite": limite}
+    # Un producto descatalogado no se ofrece al vender: si siguiera apareciendo,
+    # desactivarlo no serviria de nada. Se puede pedir explicitamente para poder
+    # verlo y reactivarlo desde la pantalla de productos.
+    condiciones, params = [
+        "TRUE" if incluir_descatalogados else "estado <> 'descatalogado'"
+    ], {"limite": limite}
     if q:
         condiciones.append("nombre_normalizado LIKE :q")
         params["q"] = f"%{clave_nombre(q)}%"
