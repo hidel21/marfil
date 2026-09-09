@@ -111,3 +111,52 @@ def test_lo_pagado_baja_lo_exigible(conn):
     )
     fila = _fila(conn, lote)
     assert fila.exigible_usd == Decimal("60.00")
+
+
+# --------------------------------------------------- las finanzas del mes (0014)
+def _finanzas(conn, mes: str):
+    return conn.execute(
+        text(
+            "SELECT compras_usd, compras_pagadas_usd FROM v_finanzas_mensuales "
+            "WHERE mes = CAST(:m AS date)"
+        ),
+        {"m": mes},
+    ).one_or_none()
+
+
+def test_una_compra_anulada_no_infla_las_compras_del_mes(conn):
+    """El agujero que abrio poder anular: la vista no excluia lotes anulados."""
+    lote = _lote(conn, "L-FIN", "contado")
+    conn.execute(
+        text("UPDATE lotes_compra SET fecha = CAST('2026-04-15' AS date) WHERE id = :l"),
+        {"l": lote},
+    )
+    antes = _finanzas(conn, "2026-04-01")
+    assert antes is not None and antes.compras_usd == Decimal("100.00")
+
+    conn.execute(
+        text("UPDATE lotes_compra SET anulada_at = now() WHERE id = :l"), {"l": lote}
+    )
+    despues = _finanzas(conn, "2026-04-01")
+    assert despues is None or despues.compras_usd == Decimal("0")
+
+
+def test_lo_pagado_al_proveedor_se_cuenta_en_el_mes_del_pago(conn):
+    """Una compra a credito de enero pagada en marzo salio de caja en marzo."""
+    lote = _lote(conn, "L-CAJA", "credito")
+    conn.execute(
+        text("UPDATE lotes_compra SET fecha = CAST('2026-01-10' AS date) WHERE id = :l"),
+        {"l": lote},
+    )
+    conn.execute(
+        text(
+            "INSERT INTO pagos_compra (lote_id, fecha, monto_usd, canal) "
+            "VALUES (:l, CAST('2026-03-05' AS date), 100, 'transferencia')"
+        ),
+        {"l": lote},
+    )
+    enero = _finanzas(conn, "2026-01-01")
+    marzo = _finanzas(conn, "2026-03-01")
+    assert enero.compras_usd == Decimal("100.00"), "la mercancia entro en enero"
+    assert enero.compras_pagadas_usd == Decimal("0"), "pero no salio plata en enero"
+    assert marzo.compras_pagadas_usd == Decimal("100.00"), "salio en marzo"
