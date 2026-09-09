@@ -26,7 +26,13 @@ import {
   Titulo,
   Vacio,
 } from "@/components/ui";
-import { useAnularVenta, useCobranza, useResumenCobranza } from "@/hooks/datos";
+import {
+  useAnularVenta,
+  useCobranza,
+  usePagosDeVenta,
+  useResumenCobranza,
+  useReversarPago,
+} from "@/hooks/datos";
 import { contar, fechaCorta, relativo, telefonoLegible } from "@/lib/formato";
 import {
   ETIQUETA_SEMAFORO,
@@ -366,6 +372,7 @@ function FilaCliente({
                     <Send className="mr-1 inline size-3" />
                     Registrar abono
                   </Link>
+                  <AbonosDeVenta ventaId={v.venta_id} />
                   <AnularVenta ventaId={v.venta_id} codigo={v.codigo} />
                 </div>
               ))}
@@ -450,5 +457,96 @@ function AnularVenta({ ventaId, codigo }: { ventaId: number; codigo: string }) {
         <X className="size-3" />
       </button>
     </span>
+  );
+}
+
+
+/**
+ * Los abonos de una venta, para reversar el que se cargó mal.
+ *
+ * Se piden solo al desplegar: cargar los abonos de las cuarenta ventas de la lista
+ * sería cuarenta consultas para algo que casi nunca se mira.
+ *
+ * El reverso no borra el abono original —el libro de pagos es inmutable por trigger—
+ * sino que inserta una fila negativa. Por eso un abono ya reversado no se puede
+ * reversar de nuevo, y el par queda visible: es lo que permite auditar la corrección.
+ */
+function AbonosDeVenta({ ventaId }: { ventaId: number }) {
+  const [abierto, setAbierto] = useState(false);
+  const pagos = usePagosDeVenta(abierto ? ventaId : null);
+  const reversar = useReversarPago();
+  const [motivos, setMotivos] = useState<Record<number, string>>({});
+
+  async function confirmar(id: number) {
+    const motivo = (motivos[id] ?? "").trim();
+    try {
+      await reversar.mutateAsync({ id, motivo });
+      toast.success("Abono reversado", {
+        description: "Queda el original y su reverso, para poder auditarlo.",
+      });
+      setMotivos((m) => ({ ...m, [id]: "" }));
+    } catch (err) {
+      const fallo = err instanceof FalloApi ? err : null;
+      toast.error(fallo?.mensaje ?? "No se pudo reversar", { description: fallo?.sugerencia });
+    }
+  }
+
+  if (!abierto) {
+    return (
+      <button onClick={() => setAbierto(true)} className="text-texto-suave underline hover:text-marca">
+        Ver abonos
+      </button>
+    );
+  }
+
+  const abonos = (pagos.data ?? []).filter((p) => p.tipo === "abono");
+  const reversados = new Set(
+    (pagos.data ?? []).filter((p) => p.tipo === "reverso").map((p) => p.motivo ?? ""),
+  );
+
+  return (
+    <div className="w-full space-y-1 rounded-lg border border-borde bg-fondo/60 p-2">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold">Abonos de esta venta</span>
+        <button onClick={() => setAbierto(false)} aria-label="Cerrar" className="text-texto-suave hover:text-texto">
+          <X className="size-3" />
+        </button>
+      </div>
+      {pagos.isLoading ? (
+        <span className="text-texto-suave">Cargando…</span>
+      ) : abonos.length === 0 ? (
+        <span className="text-texto-suave">Todavía no tiene abonos.</span>
+      ) : (
+        abonos.map((p) => (
+          <div key={p.id} className="flex flex-wrap items-center gap-2 border-t border-borde pt-1">
+            <span className="tabular">
+              <Dinero valor={p.monto_usd} />
+            </span>
+            <span className="text-texto-suave">{fechaCorta(p.fecha)}</span>
+            {p.canal && <span className="text-texto-suave">{p.canal.replaceAll("_", " ")}</span>}
+            {p.referencia && <span className="font-mono text-texto-suave">{p.referencia}</span>}
+            <span className="flex-1" />
+            <Input
+              value={motivos[p.id] ?? ""}
+              onChange={(e) => setMotivos((m) => ({ ...m, [p.id]: e.target.value }))}
+              placeholder="Motivo del reverso"
+              className="h-7 w-44 text-xs"
+            />
+            <Boton
+              onClick={() => confirmar(p.id)}
+              disabled={(motivos[p.id] ?? "").trim().length < 5 || reversar.isPending}
+              className="px-2 py-1 text-xs"
+            >
+              Reversar
+            </Boton>
+          </div>
+        ))
+      )}
+      {reversados.size > 0 && (
+        <p className="border-t border-borde pt-1 text-texto-suave">
+          Esta venta tiene {reversados.size} reverso(s) registrado(s).
+        </p>
+      )}
+    </div>
   );
 }

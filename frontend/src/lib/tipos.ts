@@ -299,9 +299,18 @@ export type Compra = {
   codigo: string;
   fecha: string | null;
   proveedor: string | null;
+  /** contado, credito, consignacion o anticipo. Nulo en los lotes migrados. */
+  condicion: string | null;
+  canal: string | null;
   total_usd: Monto;
   pagado_usd: Monto;
+  /** Lo comprado menos lo pagado. Es la cifra que cuadra contra el libro. */
   saldo_usd: Monto;
+  /**
+   * Lo que de verdad hay que pagarle a alguien: excluye contado (ya salió del
+   * fondo) y consignación (no se debe hasta vender).
+   */
+  exigible_usd: Monto;
   diferencia_usd: Monto;
   lineas: number;
   unidades: number;

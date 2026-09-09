@@ -369,8 +369,9 @@ def listar(db: SesionDb, actual: SoloAdmin, limite: int = Query(default=100, le=
                 """
             SELECT cp.*, count(c.id) AS lineas, COALESCE(sum(c.cantidad), 0) AS unidades
               FROM v_cuentas_pagar cp LEFT JOIN compras c ON c.lote_id = cp.lote_id
-             GROUP BY cp.lote_id, cp.codigo, cp.fecha, cp.proveedor, cp.total_usd,
-                      cp.pagado_usd, cp.saldo_usd, cp.diferencia_usd
+             GROUP BY cp.lote_id, cp.codigo, cp.fecha, cp.proveedor, cp.condicion,
+                      cp.canal, cp.total_usd, cp.pagado_usd, cp.saldo_usd,
+                      cp.exigible_usd, cp.diferencia_usd
              ORDER BY cp.fecha DESC NULLS LAST, cp.lote_id DESC LIMIT :l
             """
             ),

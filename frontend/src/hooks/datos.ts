@@ -321,7 +321,7 @@ export function useCrearCompra() {
 export function usePagarCompra() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ loteId, ...cuerpo }: { loteId: number; monto_usd: string; fecha: string; referencia?: string }) =>
+    mutationFn: ({ loteId, ...cuerpo }: { loteId: number; monto_usd: string; fecha: string; canal?: string; referencia?: string }) =>
       api.post(`/compras/${loteId}/pagos`, cuerpo),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["compras"] }),
   });
@@ -495,5 +495,42 @@ export function useCambiarEstadoProducto() {
       qc.invalidateQueries({ queryKey: ["productos"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
+  });
+}
+
+/**
+ * Las categorías de gasto que el negocio usa de verdad, ordenadas por uso.
+ *
+ * No hay tabla de categorías: `gastos.categoria` es texto libre y esto es un
+ * `GROUP BY`. Escribir una categoría nueva la crea, y eso es a propósito: una tabla
+ * de catálogo obligaría a un alta previa para poder anotar un gasto de mil bolívares
+ * en una hoja blanca.
+ */
+export function useCategoriasGasto() {
+  return useQuery({
+    queryKey: ["gastos", "categorias"],
+    queryFn: () => api.get<{ categoria: string; usos: number }[]>("/gastos/categorias"),
+    staleTime: 5 * MINUTO,
+  });
+}
+
+/** Los abonos de una venta, para poder reversar el que se cargó mal. */
+export function usePagosDeVenta(ventaId: number | null) {
+  return useQuery({
+    queryKey: ["pagos", "de-venta", ventaId],
+    queryFn: () =>
+      api.get<
+        {
+          id: number;
+          fecha: string;
+          tipo: string;
+          monto_usd: string;
+          canal: string | null;
+          referencia: string | null;
+          motivo: string | null;
+        }[]
+      >("/pagos", { venta_id: ventaId ?? undefined }),
+    enabled: ventaId != null,
+    staleTime: 30_000,
   });
 }
