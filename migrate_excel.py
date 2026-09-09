@@ -42,7 +42,11 @@ def read_xlsx(path: Path) -> dict[str, list[tuple[int, dict[str, object]]]]:
         for sheet in workbook.find(f"{{{MAIN_NS}}}sheets"):
             name = sheet.attrib["name"].strip()
             target = targets[sheet.attrib[f"{{{REL_NS}}}id"]]
-            target = target if target.startswith("xl/") else f"xl/{target.lstrip('/')}"
+            # El Target de la relación viene relativo ("worksheets/sheet1.xml") o
+            # absoluto ("/xl/worksheets/sheet1.xml") según qué programa escribió el
+            # libro. Se normaliza primero para no terminar con "xl/xl/...".
+            target = target.lstrip("/")
+            target = target if target.startswith("xl/") else f"xl/{target}"
             worksheet = ET.fromstring(archive.read(target))
             rows = []
             for row in worksheet.findall(
