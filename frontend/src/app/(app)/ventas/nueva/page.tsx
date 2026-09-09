@@ -62,6 +62,19 @@ export default function NuevaVenta() {
   const [moneda, setMoneda] = useState<string>("");
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [permitirSobreventa, setPermitirSobreventa] = useState(false);
+  /**
+   * Contado o crédito, explícito.
+   *
+   * Antes el plazo lo derivaba el servidor del cliente o del parámetro general, y la
+   * pantalla solo lo mostraba: no había forma de decir "esto lo pagó ahora". Una
+   * venta de contado registrada como crédito a 15 días aparece en cobranza como
+   * deuda y alguien la va a ir a cobrar.
+   *
+   * `""` en `diasCredito` significa "el plazo que corresponda al cliente": no se
+   * manda `plazo_dias` y el servidor decide, que es el comportamiento anterior.
+   */
+  const [aCredito, setACredito] = useState(true);
+  const [diasCredito, setDiasCredito] = useState("");
 
   const clientes = useClientes();
   const cotizar = useCotizar();
@@ -77,6 +90,11 @@ export default function NuevaVenta() {
       fecha: fechaVenta,
       moneda_cotizacion: moneda,
       permitir_sobreventa: permitirSobreventa,
+      ...(aCredito
+        ? diasCredito
+          ? { plazo_dias: Number(diasCredito) }
+          : {}
+        : { plazo_dias: 0 }),
       autorizaciones: Object.fromEntries(
         lineas.map((l, i) => [i, l.motivo]).filter(([, m]) => Boolean(m)),
       ),
@@ -86,7 +104,7 @@ export default function NuevaVenta() {
         precio_unitario_usd: l.precio || "0",
       })),
     }),
-    [clienteId, fechaVenta, moneda, lineas, permitirSobreventa],
+    [clienteId, fechaVenta, moneda, lineas, permitirSobreventa, aCredito, diasCredito],
   );
 
   const listoParaCotizar = Boolean(clienteId && moneda && lineas.length > 0);
@@ -180,6 +198,34 @@ export default function NuevaVenta() {
                   onChange={(e) => setFechaVenta(e.target.value)}
                 />
               </Campo>
+
+              <Campo etiqueta="Condición" requerido>
+                <Select
+                  value={aCredito ? "credito" : "contado"}
+                  onChange={(e) => setACredito(e.target.value === "credito")}
+                >
+                  <option value="contado">Contado — paga ahora</option>
+                  <option value="credito">Crédito — queda debiendo</option>
+                </Select>
+              </Campo>
+
+              {aCredito && (
+                <Campo
+                  etiqueta="Días de plazo"
+                  ayuda="Vacío usa el plazo del cliente"
+                >
+                  <Input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={diasCredito}
+                    placeholder={
+                      cotizacion ? String(cotizacion.plazo_dias) : "15"
+                    }
+                    onChange={(e) => setDiasCredito(e.target.value)}
+                  />
+                </Campo>
+              )}
             </div>
 
             {/* El cliente muestra su deuda ANTES de venderle: ninguna pantalla lo

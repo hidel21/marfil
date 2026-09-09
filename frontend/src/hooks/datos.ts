@@ -394,3 +394,106 @@ export function useEjecutarAutomatizacion() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["automatizaciones"] }),
   });
 }
+
+// ---------------------------------------------------------------- correcciones
+/**
+ * Los hooks que permiten arreglar lo que se cargó mal.
+ *
+ * Hasta ahora el sistema solo sabía crear: una venta con el cliente equivocado o un
+ * producto duplicado se quedaban ahí para siempre. Ninguno de estos borra nada —el
+ * backend deja autor, fecha y motivo— así que la corrección se puede auditar.
+ */
+
+export function useCrearCliente() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (datos: {
+      nombre: string;
+      telefono?: string;
+      email?: string;
+      nivel_precio?: string;
+      plazo_credito_dias?: number;
+      notas?: string;
+    }) => api.post<{ cliente_id: number; nombre: string }>("/clientes", datos),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clientes"] });
+      qc.invalidateQueries({ queryKey: ["cobranza"] });
+    },
+  });
+}
+
+export function useEditarCliente() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...datos }: { id: number; nombre: string; telefono?: string;
+      email?: string; nivel_precio?: string; plazo_credito_dias?: number; notas?: string }) =>
+      api.put<{ cliente_id: number }>(`/clientes/${id}`, datos),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["clientes"] });
+      qc.invalidateQueries({ queryKey: ["cobranza"] });
+    },
+  });
+}
+
+export function useAnularVenta() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo: string }) =>
+      api.post<{ codigo: string; unidades_devueltas: number }>(`/ventas/${id}/anular`, { motivo }),
+    onSuccess: () => {
+      // Anular mueve saldo, stock y auditoría a la vez: se invalida todo lo derivado.
+      for (const clave of ["ventas", "cobranza", "productos", "dashboard", "auditoria", "finanzas"]) {
+        qc.invalidateQueries({ queryKey: [clave] });
+      }
+    },
+  });
+}
+
+export function useReversarPago() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo: string }) =>
+      api.post<{ reverso_id: number }>(`/pagos/${id}/reversar`, { motivo }),
+    onSuccess: () => {
+      for (const clave of ["pagos", "cobranza", "dashboard", "finanzas"]) {
+        qc.invalidateQueries({ queryKey: [clave] });
+      }
+    },
+  });
+}
+
+export function useAnularCompra() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo: string }) =>
+      api.post<{ codigo: string; unidades_retiradas: number }>(`/compras/${id}/anular`, { motivo }),
+    onSuccess: () => {
+      for (const clave of ["compras", "productos", "dashboard", "finanzas"]) {
+        qc.invalidateQueries({ queryKey: [clave] });
+      }
+    },
+  });
+}
+
+export function useEditarProveedor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...datos }: { id: number; nombre: string; contacto?: string;
+      telefono?: string; email?: string; notas?: string }) =>
+      api.put<{ proveedor_id: number }>(`/compras/proveedores/${id}`, datos),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["compras"] }),
+  });
+}
+
+/** Descatalogar no borra: el producto deja de ofrecerse pero sus ventas siguen ahí. */
+export function useCambiarEstadoProducto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, estado }: { id: number; estado: "activo" | "descatalogado" }) =>
+      api.put(`/productos/${id}`, { estado }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["productos"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}

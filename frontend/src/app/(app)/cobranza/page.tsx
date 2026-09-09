@@ -3,18 +3,21 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { useState } from "react";
+import { toast } from "sonner";
 import {
   ChevronDown,
   ChevronRight,
   MessageSquare,
   PhoneOff,
   Send,
+  X,
 } from "lucide-react";
 import { Dinero } from "@/components/dinero";
 import {
   Aviso,
   Boton,
   Cargando,
+  Input,
   Insignia,
   Tabla,
   Tarjeta,
@@ -23,13 +26,14 @@ import {
   Titulo,
   Vacio,
 } from "@/components/ui";
-import { useCobranza, useResumenCobranza } from "@/hooks/datos";
+import { useAnularVenta, useCobranza, useResumenCobranza } from "@/hooks/datos";
 import { contar, fechaCorta, relativo, telefonoLegible } from "@/lib/formato";
 import {
   ETIQUETA_SEMAFORO,
   EXPLICACION_SEMAFORO,
   TONO_SEMAFORO,
 } from "@/lib/semaforo";
+import { FalloApi } from "@/lib/api";
 import type { ClienteEnCobranza } from "@/lib/tipos";
 
 /**
@@ -362,6 +366,7 @@ function FilaCliente({
                     <Send className="mr-1 inline size-3" />
                     Registrar abono
                   </Link>
+                  <AnularVenta ventaId={v.venta_id} codigo={v.codigo} />
                 </div>
               ))}
             </div>
@@ -369,5 +374,81 @@ function FilaCliente({
         </tr>
       )}
     </>
+  );
+}
+
+
+/**
+ * Anular una venta desde donde se la ve.
+ *
+ * Pide el motivo en dos pasos a propósito: el primer clic solo abre el campo. Un
+ * botón de anular que actúa al primer clic, en una fila apretada entre otras diez,
+ * termina anulando la venta de al lado.
+ *
+ * El motivo es obligatorio en el servidor. No es burocracia: es lo que después
+ * explica, en Auditoría, por qué un mes tuvo menos ventas de las que se recordaban.
+ */
+function AnularVenta({ ventaId, codigo }: { ventaId: number; codigo: string }) {
+  const [abierto, setAbierto] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const anular = useAnularVenta();
+
+  async function confirmar() {
+    try {
+      const r = await anular.mutateAsync({ id: ventaId, motivo: motivo.trim() });
+      toast.success(`${codigo} anulada`, {
+        description:
+          r.unidades_devueltas > 0
+            ? `${r.unidades_devueltas} unidad(es) devuelta(s) al stock`
+            : undefined,
+      });
+      setAbierto(false);
+      setMotivo("");
+    } catch (err) {
+      const fallo = err instanceof FalloApi ? err : null;
+      toast.error(fallo?.mensaje ?? "No se pudo anular", {
+        description: fallo?.sugerencia,
+      });
+    }
+  }
+
+  if (!abierto) {
+    return (
+      <button
+        onClick={() => setAbierto(true)}
+        className="text-texto-suave underline hover:text-critico"
+      >
+        Anular
+      </button>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1">
+      <Input
+        value={motivo}
+        onChange={(e) => setMotivo(e.target.value)}
+        placeholder={`Motivo para anular ${codigo}`}
+        className="h-7 w-56 text-xs"
+        autoFocus
+      />
+      <Boton
+        onClick={confirmar}
+        disabled={motivo.trim().length < 5 || anular.isPending}
+        className="px-2 py-1 text-xs"
+      >
+        {anular.isPending ? "…" : "Confirmar"}
+      </Boton>
+      <button
+        onClick={() => {
+          setAbierto(false);
+          setMotivo("");
+        }}
+        className="text-texto-suave hover:text-texto"
+        aria-label="Cancelar"
+      >
+        <X className="size-3" />
+      </button>
+    </span>
   );
 }

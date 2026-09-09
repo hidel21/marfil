@@ -3,6 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
+import { Ban, RotateCcw } from "lucide-react";
 import { Dinero } from "@/components/dinero";
 import {
   Cargando,
@@ -15,7 +17,8 @@ import {
   Vacio,
 } from "@/components/ui";
 import { useSesion } from "@/hooks/sesion";
-import { api } from "@/lib/api";
+import { FalloApi, api } from "@/lib/api";
+import { useCambiarEstadoProducto } from "@/hooks/datos";
 import { useQuery } from "@tanstack/react-query";
 
 type ProductoFila = {
@@ -43,13 +46,17 @@ function Productos() {
   const { yo } = useSesion();
   const [q, setQ] = useState("");
   const [sinCosto, setSinCosto] = useState(params.get("sin_costo") === "1");
+  // Los descatalogados se piden aparte porque el listado ya no los trae: si
+  // siguieran apareciendo al vender, descatalogar no serviría de nada.
+  const [verDescatalogados, setVerDescatalogados] = useState(false);
 
   const productos = useQuery({
-    queryKey: ["productos", "lista", q, sinCosto],
+    queryKey: ["productos", "lista", q, sinCosto, verDescatalogados],
     queryFn: () =>
       api.get<ProductoFila[]>("/productos", {
         q: q.trim() || undefined,
         sin_costo: sinCosto || undefined,
+        incluir_descatalogados: verDescatalogados || undefined,
       }),
     staleTime: 60_000,
   });
@@ -77,6 +84,14 @@ function Productos() {
           />
           Sin costo cargado
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={verDescatalogados}
+            onChange={(e) => setVerDescatalogados(e.target.checked)}
+          />
+          Ver descatalogados
+        </label>
       </div>
 
       {productos.isLoading ? (
@@ -94,6 +109,7 @@ function Productos() {
               <Th className="text-right">Divisa (+70 %)</Th>
               <Th className="text-right">BCV (+120 %)</Th>
               <Th>Estado</Th>
+              <Th />
             </tr>
           </thead>
           <tbody>
@@ -123,9 +139,18 @@ function Productos() {
                     </Insignia>
                   ) : p.estado === "borrador_por_revisar" ? (
                     <Insignia tono="neutro">por revisar</Insignia>
+                  ) : p.estado === "descatalogado" ? (
+                    <Insignia tono="neutro">descatalogado</Insignia>
                   ) : (
                     <Insignia tono="ok">activo</Insignia>
                   )}
+                </Td>
+                <Td className="text-right">
+                  <BotonDescatalogar
+                    id={p.producto_id}
+                    nombre={p.nombre}
+                    estado={p.estado}
+                  />
                 </Td>
               </tr>
             ))}
@@ -133,5 +158,53 @@ function Productos() {
         </Tabla>
       )}
     </>
+  );
+}
+
+
+/**
+ * Descatalogar y reactivar un producto.
+ *
+ * No hay borrado real y es deliberado: las ventas históricas apuntan al producto, y
+ * eliminarlo dejaría la conciliación sin cuadrar y los reportes con huecos.
+ * Descatalogado deja de ofrecerse al vender, que es lo que se quiere en la práctica,
+ * y se puede revertir con un clic.
+ */
+function BotonDescatalogar({
+  id,
+  nombre,
+  estado,
+}: {
+  id: number;
+  nombre: string;
+  estado: string;
+}) {
+  const cambiar = useCambiarEstadoProducto();
+  const fuera = estado === "descatalogado";
+
+  async function alternar() {
+    try {
+      await cambiar.mutateAsync({ id, estado: fuera ? "activo" : "descatalogado" });
+      toast.success(fuera ? `${nombre} vuelve a estar activo` : `${nombre} descatalogado`, {
+        description: fuera ? undefined : "Deja de ofrecerse al vender. Sus ventas siguen ahí.",
+      });
+    } catch (err) {
+      const fallo = err instanceof FalloApi ? err : null;
+      toast.error(fallo?.mensaje ?? "No se pudo cambiar el estado", {
+        description: fallo?.sugerencia,
+      });
+    }
+  }
+
+  return (
+    <button
+      onClick={alternar}
+      disabled={cambiar.isPending}
+      title={fuera ? `Reactivar ${nombre}` : `Descatalogar ${nombre}`}
+      aria-label={fuera ? `Reactivar ${nombre}` : `Descatalogar ${nombre}`}
+      className="text-texto-suave hover:text-marca disabled:opacity-40"
+    >
+      {fuera ? <RotateCcw className="size-4" /> : <Ban className="size-4" />}
+    </button>
   );
 }

@@ -3,13 +3,16 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { toast } from "sonner";
-import { Check, Phone, PhoneOff } from "lucide-react";
+import { Check, Pencil, Phone, PhoneOff, UserPlus, X } from "lucide-react";
 import { Dinero } from "@/components/dinero";
 import {
   Aviso,
   Boton,
+  Campo,
   Cargando,
   Input,
+  Select,
+  Tarjeta,
   Insignia,
   Tabla,
   Td,
@@ -17,7 +20,12 @@ import {
   Titulo,
   Vacio,
 } from "@/components/ui";
-import { useClientes, useGuardarTelefono } from "@/hooks/datos";
+import {
+  useClientes,
+  useCrearCliente,
+  useEditarCliente,
+  useGuardarTelefono,
+} from "@/hooks/datos";
 import { FalloApi } from "@/lib/api";
 import { contar, telefonoLegible } from "@/lib/formato";
 import { tonoPorMora } from "@/lib/semaforo";
@@ -54,6 +62,9 @@ function Clientes() {
     con_deuda: soloConDeuda || undefined,
   });
 
+  // `null` = el formulario está cerrado; `0` = alta; un id = edición de ese cliente.
+  const [editando, setEditando] = useState<number | null>(null);
+
   const filas = clientes.data ?? [];
   const pendientes = filas.filter((c) => !c.telefono_e164 && Number(c.deuda_usd) > 0);
 
@@ -62,6 +73,20 @@ function Clientes() {
       <Titulo detalle="Cargá un teléfono y ese cliente ya se puede notificar.">
         Clientes
       </Titulo>
+
+      <div className="mb-4">
+        {editando === null ? (
+          <Boton onClick={() => setEditando(0)}>
+            <UserPlus className="size-4" />
+            Nuevo cliente
+          </Boton>
+        ) : (
+          <FormularioCliente
+            cliente={editando ? filas.find((c) => c.id === editando) : undefined}
+            onCerrar={() => setEditando(null)}
+          />
+        )}
+      </div>
 
       {pendientes.length > 0 && (
         <div className="mb-5">
@@ -114,11 +139,16 @@ function Clientes() {
               <Th className="text-right">Atraso</Th>
               <Th className="text-right">Compras</Th>
               <Th>Notas</Th>
+              <Th />
             </tr>
           </thead>
           <tbody>
             {filas.map((c) => (
-              <FilaCliente key={c.id} cliente={c} />
+              <FilaCliente
+                key={c.id}
+                cliente={c}
+                onEditar={() => setEditando(c.id)}
+              />
             ))}
           </tbody>
         </Tabla>
@@ -127,7 +157,13 @@ function Clientes() {
   );
 }
 
-function FilaCliente({ cliente: c }: { cliente: Cliente }) {
+function FilaCliente({
+  cliente: c,
+  onEditar,
+}: {
+  cliente: Cliente;
+  onEditar: () => void;
+}) {
   const [editando, setEditando] = useState(false);
   const [valor, setValor] = useState("");
   const guardar = useGuardarTelefono();
@@ -236,6 +272,140 @@ function FilaCliente({ cliente: c }: { cliente: Cliente }) {
           </span>
         )}
       </Td>
+      <Td className="text-right">
+        <button
+          onClick={onEditar}
+          title={`Editar ${c.nombre}`}
+          aria-label={`Editar ${c.nombre}`}
+          className="text-texto-suave hover:text-marca"
+        >
+          <Pencil className="size-4" />
+        </button>
+      </Td>
     </tr>
+  );
+}
+
+
+/**
+ * Alta y corrección de un cliente en el mismo formulario.
+ *
+ * Sin `cliente` es un alta; con él, una edición. Son el mismo conjunto de campos y
+ * las mismas validaciones del servidor, así que separarlos en dos componentes solo
+ * duplicaría el manejo de errores.
+ *
+ * El nombre es lo único obligatorio: obligar a cargar el teléfono en el alta llevaría
+ * a inventarlo, y un número inventado es peor que uno ausente —el recordatorio se va
+ * a un desconocido.
+ */
+function FormularioCliente({
+  cliente,
+  onCerrar,
+}: {
+  cliente?: Cliente;
+  onCerrar: () => void;
+}) {
+  const crear = useCrearCliente();
+  const editar = useEditarCliente();
+  const [nombre, setNombre] = useState(cliente?.nombre ?? "");
+  const [telefono, setTelefono] = useState("");
+  const [email, setEmail] = useState(cliente?.email ?? "");
+  const [nivel, setNivel] = useState(cliente?.nivel_precio ?? "publico");
+  const [plazo, setPlazo] = useState(
+    cliente?.plazo_credito_dias != null ? String(cliente.plazo_credito_dias) : "",
+  );
+  const [notas, setNotas] = useState(cliente?.notas ?? "");
+
+  const guardando = crear.isPending || editar.isPending;
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    const datos = {
+      nombre: nombre.trim(),
+      ...(telefono.trim() ? { telefono: telefono.trim() } : {}),
+      ...(email.trim() ? { email: email.trim() } : {}),
+      nivel_precio: nivel,
+      ...(plazo ? { plazo_credito_dias: Number(plazo) } : {}),
+      ...(notas.trim() ? { notas: notas.trim() } : {}),
+    };
+    try {
+      if (cliente) {
+        await editar.mutateAsync({ id: cliente.id, ...datos });
+        toast.success(`${datos.nombre} actualizado`);
+      } else {
+        await crear.mutateAsync(datos);
+        toast.success(`${datos.nombre} agregado`);
+      }
+      onCerrar();
+    } catch (err) {
+      const fallo = err instanceof FalloApi ? err : null;
+      toast.error(fallo?.mensaje ?? "No se pudo guardar", {
+        description: fallo?.sugerencia,
+      });
+    }
+  }
+
+  return (
+    <Tarjeta>
+      <form onSubmit={enviar} className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="font-semibold">
+            {cliente ? `Editar ${cliente.nombre}` : "Nuevo cliente"}
+          </p>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className="text-texto-suave hover:text-texto"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Campo etiqueta="Nombre" requerido>
+            <Input value={nombre} onChange={(e) => setNombre(e.target.value)} required minLength={2} />
+          </Campo>
+          <Campo
+            etiqueta="Teléfono"
+            ayuda={cliente?.telefono_e164 ? "Dejalo vacío para conservar el actual" : "Con código de país"}
+          >
+            <Input
+              value={telefono}
+              onChange={(e) => setTelefono(e.target.value)}
+              placeholder={cliente?.telefono_e164 ?? "0414 1234567"}
+            />
+          </Campo>
+          <Campo etiqueta="Correo">
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </Campo>
+          <Campo etiqueta="Nivel de precio">
+            <Select value={nivel} onChange={(e) => setNivel(e.target.value)}>
+              <option value="publico">Público</option>
+              <option value="team">Team</option>
+              <option value="revendedor">Revendedor</option>
+            </Select>
+          </Campo>
+          <Campo etiqueta="Plazo de crédito" ayuda="Días. Vacío usa el plazo general.">
+            <Input
+              type="number"
+              min={0}
+              max={365}
+              value={plazo}
+              onChange={(e) => setPlazo(e.target.value)}
+            />
+          </Campo>
+          <Campo etiqueta="Notas">
+            <Input value={notas} onChange={(e) => setNotas(e.target.value)} />
+          </Campo>
+        </div>
+
+        <div className="flex gap-2">
+          <Boton type="submit" disabled={guardando || nombre.trim().length < 2}>
+            {guardando ? "Guardando…" : cliente ? "Guardar cambios" : "Agregar cliente"}
+          </Boton>
+        </div>
+      </form>
+    </Tarjeta>
   );
 }
