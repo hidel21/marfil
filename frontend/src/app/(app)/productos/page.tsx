@@ -4,21 +4,24 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Ban, RotateCcw } from "lucide-react";
+import { Ban, Plus, RotateCcw, X } from "lucide-react";
 import { Dinero } from "@/components/dinero";
 import {
+  Boton,
+  Campo,
   Cargando,
   Input,
   Insignia,
   Tabla,
   Td,
+  Tarjeta,
   Th,
   Titulo,
   Vacio,
 } from "@/components/ui";
 import { useSesion } from "@/hooks/sesion";
 import { FalloApi, api } from "@/lib/api";
-import { useCambiarEstadoProducto } from "@/hooks/datos";
+import { useAltaRapida, useCambiarEstadoProducto } from "@/hooks/datos";
 import { useQuery } from "@tanstack/react-query";
 
 type ProductoFila = {
@@ -49,6 +52,7 @@ function Productos() {
   // Los descatalogados se piden aparte porque el listado ya no los trae: si
   // siguieran apareciendo al vender, descatalogar no serviría de nada.
   const [verDescatalogados, setVerDescatalogados] = useState(false);
+  const [creando, setCreando] = useState(false);
 
   const productos = useQuery({
     queryKey: ["productos", "lista", q, sinCosto, verDescatalogados],
@@ -65,9 +69,11 @@ function Productos() {
 
   return (
     <>
-      <Titulo detalle="Los precios se calculan desde el costo y la política, no se teclean." accion={yo?.rol === "admin" ? <Link href="/productos/revision" className="inline-flex min-h-11 items-center rounded-xl bg-marca px-4 text-sm font-semibold text-white">Revisar pendientes</Link> : undefined}>
+      <Titulo detalle="Los precios se calculan desde el costo y la política, no se teclean." accion={yo?.rol === "admin" ? <div className="flex flex-wrap gap-2"><Link href="/productos/revision" className="inline-flex min-h-11 items-center rounded-xl border border-borde px-4 text-sm font-semibold">Revisar pendientes</Link><Boton onClick={() => setCreando((v) => !v)}><Plus className="size-4" />Nuevo producto</Boton></div> : undefined}>
         Productos
       </Titulo>
+
+      {creando && <FormularioProducto onCerrar={() => setCreando(false)} />}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input
@@ -206,5 +212,96 @@ function BotonDescatalogar({
     >
       {fuera ? <RotateCcw className="size-4" /> : <Ban className="size-4" />}
     </button>
+  );
+}
+
+
+/**
+ * Alta de un producto desde su propia pantalla.
+ *
+ * Existía el endpoint y el buscador de la venta lo usaba ("Crear «...»"), pero esa
+ * pantalla no tenía ninguna forma de dar de alta: había que empezar una venta para
+ * poder crear un producto, que es exactamente al revés de como se trabaja cuando
+ * llega mercancía nueva.
+ *
+ * El costo es opcional y eso decide el estado. Con costo el producto queda activo y
+ * el guardia de precio ya puede compararlo; sin costo entra a la cola de revisión,
+ * que es trabajo visible y no un error: es mejor tener el producto anotado que
+ * perderlo por no saber todavía cuánto costó.
+ */
+function FormularioProducto({ onCerrar }: { onCerrar: () => void }) {
+  const alta = useAltaRapida();
+  const [nombre, setNombre] = useState("");
+  const [costo, setCosto] = useState("");
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      const r = await alta.mutateAsync({
+        nombre: nombre.trim(),
+        ...(costo ? { costo_usd: costo } : {}),
+      });
+      if (r.ya_existia) {
+        toast.info(`${r.nombre} ya estaba en el catálogo`, {
+          description: "No se creó un duplicado.",
+        });
+      } else {
+        toast.success(`${r.nombre} creado`, {
+          description:
+            r.estado === "activo"
+              ? "Con costo cargado: ya se puede vender con precio calculado."
+              : "Sin costo: quedó en la cola de Revisión.",
+        });
+      }
+      setNombre("");
+      setCosto("");
+      onCerrar();
+    } catch (err) {
+      const fallo = err instanceof FalloApi ? err : null;
+      toast.error(fallo?.mensaje ?? "No se pudo crear", { description: fallo?.sugerencia });
+    }
+  }
+
+  return (
+    <Tarjeta className="mb-5">
+      <form onSubmit={enviar} className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="font-semibold">Nuevo producto</p>
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className="text-texto-suave hover:text-texto"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-end">
+          <Campo etiqueta="Nombre" requerido>
+            <Input
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              placeholder="Ej. 212 VIP MEN"
+              minLength={2}
+              required
+              autoFocus
+            />
+          </Campo>
+          <Campo etiqueta="Costo USD" ayuda="Opcional. Sin costo va a Revisión.">
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={costo}
+              onChange={(e) => setCosto(e.target.value)}
+              placeholder="0.00"
+            />
+          </Campo>
+          <Boton type="submit" disabled={nombre.trim().length < 2 || alta.isPending}>
+            {alta.isPending ? "Creando…" : "Crear"}
+          </Boton>
+        </div>
+      </form>
+    </Tarjeta>
   );
 }
