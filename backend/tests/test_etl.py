@@ -511,3 +511,49 @@ def test_un_reverso_no_descuadra_la_conciliacion(sesion):
     pagos_svc.reversar(sesion, pago_id=pago["pago_id"], motivo="cargado dos veces")
     malos = sesion.execute(text("SELECT count(*) FROM v_conciliacion_pagos WHERE NOT ok")).scalar()
     assert malos == 0
+
+
+# ------------------------------------------- linaje despues de corregir o anular
+def test_un_abono_corregido_despues_de_importar_no_se_vuelve_a_cargar(sesion, tmp_path):
+    """El linaje apunta al abono original; si se reverso y reemplazo, se busca el nuevo.
+
+    Paso en produccion: sin esto, reimportar el libro trataba el pago como nuevo y,
+    con saldo disponible, lo habria registrado dos veces.
+    """
+    from app.models.enums import CanalPago
+    from app.services import pagos as pagos_svc
+
+    _tasa(sesion, date(2026, 6, 26), "622.2135")
+    ruta = _libro(
+        tmp_path,
+        ventas=[_venta("V-003", "Amarista Linaje", "Khamrah", 42, date(2026, 6, 20))],
+        pagos=[_pago("P-003", "V-003", date(2026, 6, 27), **{"Recibido Bs": 13066.48})],
+    )
+    carga.aplicar(sesion, _planificar(sesion, ruta), usuario_id=1)
+    pago_id, venta_id = sesion.execute(
+        text("SELECT id, venta_id FROM pagos WHERE monto_moneda = 13066.48 AND tipo = 'abono'")
+    ).one()
+    # Un socio lo corrige a mano: reverso con su fecha y registro con otra tasa.
+    pagos_svc.reversar(sesion, pago_id=pago_id, motivo="tasa mal", fecha=date(2026, 6, 27))
+    pagos_svc.registrar(sesion, venta_id=venta_id, fecha=date(2026, 6, 27),
+                        canal=CanalPago.PAGO_MOVIL, monto_moneda=Decimal("13066.48"),
+                        tasa_manual=Decimal("622.2135"))
+
+    v2 = _libro(tmp_path, nombre="v2.xlsx",
+                ventas=[_venta("V-003", "Amarista Linaje", "Khamrah", 42, date(2026, 6, 20))],
+                pagos=[_pago("P-003", "V-003", date(2026, 6, 27), **{"Recibido Bs": 13066.48})])
+    assert _tipos(_planificar(sesion, v2), "pagos") == {"P-003": "igual"}
+
+
+def test_una_venta_anulada_despues_de_importar_no_se_recrea(sesion, tmp_path):
+    from app.services import ventas as ventas_svc
+
+    ruta = _libro(tmp_path, ventas=[_venta("V-001", "Ana Anulada", "Cloud", 30, date(2026, 7, 1))])
+    resultado = carga.aplicar(sesion, _planificar(sesion, ruta), usuario_id=1)
+    ventas_svc.anular(sesion, venta_id=resultado.creados["V-001"], motivo="cargada por error")
+
+    v2 = _libro(tmp_path, nombre="v2.xlsx",
+                ventas=[_venta("V-001", "Ana Anulada", "Cloud", 30, date(2026, 7, 2))])
+    accion = _planificar(sesion, v2).de("ventas")[0]
+    assert accion.tipo == "omitir"
+    assert "anuló" in accion.motivo

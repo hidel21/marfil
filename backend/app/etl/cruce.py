@@ -283,11 +283,17 @@ def _cruzar_ventas(estado: Estado, libro: Libro, plan: Plan) -> dict[str, Accion
     #    orden de hoja haria que una venta temprana se quede con la pareja de otra.
     reclamadas: dict[int, str] = {}
     destino: dict[str, tuple[int, str, float]] = {}
+    anuladas: dict[str, int] = {}
     for fila in libro.ventas:
         if ("ventas", fila.ref) in estado.linaje:
             vid = estado.linaje[("ventas", fila.ref)]
-            destino[fila.ref] = (vid, "manual", 1.0)
-            reclamadas[vid] = fila.ref
+            if vid in estado.venta:
+                destino[fila.ref] = (vid, "manual", 1.0)
+                reclamadas[vid] = fila.ref
+            else:
+                # Se importo y despues un socio la anulo. Volver a crearla desharia esa
+                # decision: queda omitida, y sus pagos con ella.
+                anuladas[fila.ref] = vid
     pares = []
     resueltos = {f.ref: estado.resolver_cliente(f.cliente) for f in libro.ventas}
     cliente_de = {ref: cid for ref, (cid, _m) in resueltos.items()}
@@ -318,6 +324,13 @@ def _cruzar_ventas(estado: Estado, libro: Libro, plan: Plan) -> dict[str, Accion
     for fila in libro.ventas:
         comun = {"etapa": "ventas", "ref": fila.ref, "hoja": fila.hoja, "fila": fila.numero}
         crudo = {**fila.crudo, "_ref": fila.ref}
+        if fila.ref in anuladas:
+            por_ref[fila.ref] = Accion(
+                **comun, tipo="omitir", crudo=crudo,
+                motivo=f"Se importó y después se anuló en la base (venta #{anuladas[fila.ref]}): "
+                "no se vuelve a crear.",
+            )
+            continue
         # El libro da algunas ventas por pagadas con una diferencia que su curador no
         # pudo ubicar ("sin crear efectivo"). No se inventa un cobro para cerrarlas: se
         # avisa, porque en la base van a quedar con ese saldo hasta que se concilien.
@@ -552,7 +565,10 @@ def _cruzar_pagos(estado: Estado, libro: Libro, plan: Plan, ventas: dict[str, Ac
         if ("pagos", fila.ref) in estado.linaje:
             pid = estado.linaje[("pagos", fila.ref)]
             existente = next((p for p in estado.pagos if p["id"] == pid), None)
-        elif venta.destino_id is not None:
+        # El abono enlazado puede ya no estar vivo: si alguien lo corrigio despues de
+        # importar, se reverso y en su lugar hay otro. Sin este segundo intento la fila
+        # parece nueva, y con saldo disponible se registraria el pago dos veces.
+        if existente is None and venta.destino_id is not None:
             existente = next(
                 (p for p in estado.pagos
                  if p["venta_id"] == venta.destino_id and comparable(fila, p)),
