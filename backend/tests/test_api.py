@@ -1215,3 +1215,25 @@ def test_importar_algo_que_no_es_un_excel_se_rechaza(cliente_api, token):
     )
     assert r.status_code == 422
     assert r.json()["codigo"] == "ARCHIVO_INVALIDO"
+
+
+def test_un_reverso_puede_caer_en_la_fecha_del_abono_original(cliente_api, token, engine_api):
+    """Corregir una carga de julio no puede aparecer como un cobro negativo de hoy."""
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    pago = cliente_api.post(
+        "/api/v1/pagos",
+        headers=token,
+        json={"venta_id": venta, "fecha": "2026-07-11", "canal": "efectivo_usd",
+              "monto_moneda": "10.00"},
+    ).json()
+    r = cliente_api.post(
+        f"/api/v1/pagos/{pago['pago_id']}/reversar",
+        headers=token,
+        json={"motivo": "mal convertido al migrar", "en_fecha_original": True},
+    )
+    assert r.status_code == 201, r.text
+    with engine_api.begin() as c:
+        fecha = c.execute(
+            text("SELECT fecha FROM pagos WHERE id = :i"), {"i": r.json()["reverso_id"]}
+        ).scalar()
+    assert str(fecha) == "2026-07-11"

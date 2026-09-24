@@ -122,6 +122,9 @@ def referencia_existe(
 
 class ReversoEntrada(BaseModel):
     motivo: str = Field(min_length=5, description="Queda en el libro y en la auditoría")
+    #: Para corregir un error de carga: el reverso cae en la fecha del abono original.
+    #: Sin esto se usa la de hoy, que es lo correcto para una devolucion real.
+    en_fecha_original: bool = False
 
 
 @router.post("/{pago_id}/reversar", status_code=201)
@@ -136,7 +139,14 @@ def reversar(
 
     El libro es append-only por trigger, así que corregir es agregar, nunca editar.
     """
-    reverso_id = svc.reversar(db, pago_id=pago_id, motivo=datos.motivo, usuario_id=actual.id)
+    fecha = None
+    if datos.en_fecha_original:
+        fecha = db.execute(
+            text("SELECT fecha FROM pagos WHERE id = :i"), {"i": pago_id}
+        ).scalar()
+    reverso_id = svc.reversar(
+        db, pago_id=pago_id, motivo=datos.motivo, usuario_id=actual.id, fecha=fecha
+    )
     db.commit()
     return {"reverso_id": reverso_id, "anula_pago_id": pago_id}
 
