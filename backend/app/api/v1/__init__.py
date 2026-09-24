@@ -13,6 +13,7 @@ from app.api.v1 import (
     dashboard,
     finanzas,
     gastos,
+    importaciones,
     pagos,
     productos,
     recordatorios,
@@ -38,6 +39,7 @@ for modulo in (
     auditoria,
     ajustes,
     automatizaciones,
+    importaciones,
     reportes,
 ):
     router.include_router(modulo.router)

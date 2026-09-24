@@ -1174,3 +1174,44 @@ def test_un_producto_descatalogado_no_se_ofrece_al_vender(cliente_api, token, en
         "/api/v1/productos?limite=500&incluir_descatalogados=true", headers=token
     ).json()
     assert producto in [p["producto_id"] for p in con_todos], "se puede ver para reactivarlo"
+
+
+# ------------------------------------------------------ importar Excel por HTTP
+def test_importar_el_excel_plan_y_despues_aplicar(cliente_api, token, tmp_path):
+    """El pipeline de la app: el plan no escribe, aplicar si, y repetir se rechaza."""
+    from tests.test_etl import _libro, _venta
+
+    sufijo = uuid4().hex[:6]
+    ruta = _libro(tmp_path, ventas=[_venta("V-001", f"Cliente Excel {sufijo}", "Cloud", 30,
+                                           date(2026, 7, 1))])
+
+    def subir(modo: str):
+        with ruta.open("rb") as f:
+            return cliente_api.post(
+                f"/api/v1/importaciones/excel?modo={modo}",
+                headers=token,
+                files={"archivo": ("libro.xlsx", f, "application/octet-stream")},
+            )
+
+    plan = subir("plan")
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["resumen"]["ventas"] == {"crear": 1}
+    assert "Plan de importación" in plan.json()["reporte_md"]
+
+    hecho = subir("aplicar")
+    assert hecho.status_code == 200, hecho.text
+    assert "V-001" in hecho.json()["creados"]
+
+    assert subir("aplicar").status_code == 409, "el mismo archivo no se aplica dos veces"
+    historial = cliente_api.get("/api/v1/importaciones", headers=token).json()
+    assert historial[0]["enlaces"] >= 1
+
+
+def test_importar_algo_que_no_es_un_excel_se_rechaza(cliente_api, token):
+    r = cliente_api.post(
+        "/api/v1/importaciones/excel?modo=plan",
+        headers=token,
+        files={"archivo": ("nota.txt", b"hola", "text/plain")},
+    )
+    assert r.status_code == 422
+    assert r.json()["codigo"] == "ARCHIVO_INVALIDO"

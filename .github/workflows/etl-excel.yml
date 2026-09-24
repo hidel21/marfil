@@ -1,0 +1,87 @@
+name: Importar libro de Excel
+
+# El pipeline del ETL (`backend/app/etl`). Solo manual y en dos pasos:
+#   1. correr con modo=plan y leer el reporte (resumen del job y artefacto);
+#   2. si el plan es el esperado, correr con modo=aplicar y confirmacion=IMPORTAR.
+# `aplicar` vuelve a cruzar el libro contra la base en la misma transaccion en la que
+# escribe, asi que nunca aplica un plan viejo. Repetir el mismo archivo se rechaza.
+on:
+  workflow_dispatch:
+    inputs:
+      archivo:
+        description: "Libro dentro del repo"
+        required: true
+        default: "resources/Sistema Marfil V2 (1) (1).xlsx"
+        type: string
+      modo:
+        description: "plan no escribe nada; aplicar escribe"
+        required: true
+        default: plan
+        type: choice
+        options: [plan, aplicar]
+      confirmacion:
+        description: "Para aplicar: escribir IMPORTAR"
+        required: false
+        type: string
+      usuario_id:
+        description: "Autor en la auditoría (id de usuario)"
+        required: true
+        default: "1"
+        type: string
+
+jobs:
+  etl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exigir la confirmación para aplicar
+        if: inputs.modo == 'aplicar' && inputs.confirmacion != 'IMPORTAR'
+        run: echo "::error::Para aplicar hay que escribir IMPORTAR." && exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Instalar el backend
+        run: pip install ./backend
+
+      # Sin tasas del dia, los pagos en bolivares sin equivalente se omiten (el ETL no
+      # convierte con una tasa de hace semanas). Ponerlas al dia primero es idempotente.
+      - name: Poner al día las tasas
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.MARFIL_DATABASE_URL }}
+          ENTORNO: produccion
+          JWT_SECRET: solo-para-cumplir-la-validacion-de-arranque-no-se-usa
+          CORS_ORIGENES: https://marfil-sistema.onrender.com
+        run: python -c "from app.jobs.operativos import backfill_tasas; print(backfill_tasas()['detalle'])"
+
+      - name: ETL ${{ inputs.modo }}
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.MARFIL_DATABASE_URL }}
+          ENTORNO: produccion
+          JWT_SECRET: solo-para-cumplir-la-validacion-de-arranque-no-se-usa
+          CORS_ORIGENES: https://marfil-sistema.onrender.com
+          ARCHIVO: ${{ inputs.archivo }}
+          MODO: ${{ inputs.modo }}
+          USUARIO: ${{ inputs.usuario_id }}
+        run: |
+          if [ "$MODO" = "aplicar" ]; then
+            python -m app.etl aplicar "../$ARCHIVO" --confirmar --usuario-id "$USUARIO" \
+              --md ../etl.md --json ../etl.json
+          else
+            python -m app.etl plan "../$ARCHIVO" --md ../etl.md --json ../etl.json
+          fi
+          cat ../etl.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etl-${{ inputs.modo }}-${{ github.run_number }}
+          path: |
+            etl.md
+            etl.json
+          if-no-files-found: ignore
+          retention-days: 90

@@ -160,3 +160,28 @@ Pasa el servicio web de Render a una instancia siempre activa antes de depender 
 Marfil en caja si el minuto de arranque es inaceptable. Pasa Neon a un plan con una
 ventana de restauración mayor antes de superar 0,5 GB o cuando el volumen de ventas
 justifique recuperación con SLA. No hace falta cambiar código: solo el plan.
+
+## 7. Importar un libro de Excel (ETL)
+
+El libro "Sistema Marfil V2" se carga con un ETL en cuatro etapas (`backend/app/etl`):
+extraer, cruzar contra la base, cargar en una transacción y reportar. Nada se
+duplica: cada venta, pago y egreso se busca primero en la base —por cliente y
+producto, no por fecha— y cada fila importada queda ligada a su registro en
+`enlaces_importacion`, así que una versión nueva del libro solo aplica lo distinto.
+
+Siempre en dos pasos, por cualquiera de las tres vías:
+
+| Vía | Plan (no escribe) | Aplicar |
+|---|---|---|
+| Terminal con acceso a la base | `python -m app.etl plan libro.xlsx --md plan.md` | `python -m app.etl aplicar libro.xlsx --confirmar --usuario-id 1` |
+| API (admin) | `POST /api/v1/importaciones/excel?modo=plan` con el archivo | `?modo=aplicar` |
+| GitHub Actions | *Importar libro de Excel* con `modo=plan` | `modo=aplicar` y `confirmacion=IMPORTAR` |
+
+Lo que el libro marca **Revisar** o **Sin caja**, las ventas sin precio o sin base
+confirmada, y los pagos en bolívares sin tasa del día **no se cargan**: se listan en
+el reporte con su motivo. Antes de aplicar, las tasas tienen que estar al día; el
+workflow lo hace solo.
+
+> **Los secretos de la sección 4 siguen sin configurarse.** Sin `MARFIL_DATABASE_URL`
+> este workflow no puede correr, y sin `MARFIL_URL`/`MARFIL_JOB_SECRET` la captura
+> diaria de tasas no corre desde el 4 de septiembre de 2026.
