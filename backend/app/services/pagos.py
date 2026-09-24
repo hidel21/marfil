@@ -334,11 +334,23 @@ def registrar(
     }
 
 
-def reversar(sesion: Session, *, pago_id: int, motivo: str, usuario_id: int | None = None) -> int:
+def reversar(
+    sesion: Session,
+    *,
+    pago_id: int,
+    motivo: str,
+    usuario_id: int | None = None,
+    fecha: date | None = None,
+) -> int:
     """Anula un pago con una fila negativa. El original no se toca.
 
     Es lo que permite corregir sin reescribir la historia: el trigger de
     inmutabilidad rechaza cualquier UPDATE o DELETE sobre el libro.
+
+    `fecha` es para corregir un error de carga, no una devolucion real: el reverso
+    de un abono de julio mal convertido tiene que caer en julio. Con la fecha de hoy
+    las finanzas mostrarian un cobro negativo en el mes de la correccion y un julio
+    inflado, aunque en la realidad no se movio dinero en ninguno de los dos.
     """
     original = sesion.execute(
         text(
@@ -361,14 +373,18 @@ def reversar(sesion: Session, *, pago_id: int, motivo: str, usuario_id: int | No
             "INSERT INTO pagos (venta_id, cuota_id, fecha, tipo, moneda, monto_moneda, "
             "tasa_aplicada, origen_tasa, monto_usd, canal, anula_pago_id, motivo, "
             "registrado_por_usuario_id) "
-            "VALUES (:v, :cuota, CURRENT_DATE, 'reverso', :moneda, :monto, :tasa, :origen, "
-            ":usd, :canal, :orig, :motivo, :u) RETURNING id"
+            "VALUES (:v, :cuota, COALESCE(CAST(:fecha AS date), CURRENT_DATE), 'reverso', "
+            ":moneda, :monto, :tasa, :origen, :usd, :canal, :orig, :motivo, :u) RETURNING id"
         ),
         {
             "v": original.venta_id,
             "cuota": original.cuota_id,
             "moneda": original.moneda,
-            "monto": original.monto_moneda,
+            # Espejo exacto del original: los dos montos negados. Con el monto en moneda
+            # positivo, la fila no cumplia `monto_usd = monto_moneda / tasa` y cada
+            # reverso aparecia como un descuadre en la conciliacion; ademas los totales
+            # en bolivares sumaban el reverso en vez de restarlo.
+            "monto": -original.monto_moneda,
             "tasa": original.tasa_aplicada,
             "origen": original.origen_tasa,
             "usd": -original.monto_usd,
@@ -376,5 +392,6 @@ def reversar(sesion: Session, *, pago_id: int, motivo: str, usuario_id: int | No
             "orig": pago_id,
             "motivo": motivo,
             "u": usuario_id,
+            "fecha": fecha,
         },
     ).scalar_one()
