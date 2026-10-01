@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     ajustes,
+    analisis,
     auditoria,
     auth,
     automatizaciones,
@@ -34,6 +35,7 @@ for modulo in (
     compras,
     gastos,
     finanzas,
+    analisis,
     cobranza,
     recordatorios,
     auditoria,

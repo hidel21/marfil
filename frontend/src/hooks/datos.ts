@@ -631,3 +631,67 @@ export function useHistorialImportaciones() {
     staleTime: MINUTO,
   });
 }
+
+// ------------------------------------------------------------------ analisis
+export type Indicadores = {
+  ventas: number;
+  vendido_usd: Monto;
+  ganancia_usd: Monto;
+  por_cobrar_usd: Monto;
+  clientes: number;
+  unidades: number;
+  ventas_sin_costo: number;
+  cobrado_usd: Monto;
+  ticket_promedio_usd: Monto | null;
+  margen_pct: Monto | null;
+};
+export type PeriodoSerie = {
+  desde: string;
+  hasta: string;
+  dias: number;
+  ventas: number;
+  vendido_usd: Monto;
+  ganancia_usd: Monto;
+  cobrado_usd: Monto;
+};
+export type Analisis = {
+  periodo: { desde: string; hasta: string; agrupar: string; dias: number };
+  anterior: { desde: string; hasta: string };
+  indicadores: Indicadores;
+  indicadores_anterior: Indicadores;
+  serie: PeriodoSerie[];
+  desgloses: {
+    productos: { id: number; nombre: string; linea: string | null; unidades: number; vendido_usd: Monto; ganancia_usd: Monto; sin_costo: boolean }[];
+    vendedores: { id: number; nombre: string; ventas: number; vendido_usd: Monto; ganancia_usd: Monto }[];
+    clientes: { id: number; nombre: string; ventas: number; vendido_usd: Monto; por_cobrar_usd: Monto }[];
+    lineas: { linea: string; vendido_usd: Monto; unidades: number }[];
+    monedas: { moneda: string; ventas: number; vendido_usd: Monto }[];
+    metodos: { canal: string; cobros: number; cobrado_usd: Monto }[];
+  };
+};
+
+export function useAnalisis(params: Record<string, string | undefined>) {
+  return useQuery({
+    queryKey: ["analisis", params],
+    queryFn: () => api.get<Analisis>("/analisis", params),
+    staleTime: MINUTO,
+    // Al cambiar un filtro se conserva el resultado anterior mientras llega el nuevo:
+    // sin saltos de diseño ni pantallas en blanco en cada clic.
+    placeholderData: (previo) => previo,
+  });
+}
+
+export function useOpcionesAnalisis() {
+  return useQuery({
+    queryKey: ["analisis", "opciones"],
+    queryFn: () =>
+      api.get<{
+        vendedores: { id: number; nombre: string }[];
+        clientes: { id: number; nombre: string }[];
+        productos: { id: number; nombre: string }[];
+        lineas: string[];
+        primera_venta: string | null;
+      }>("/analisis/opciones"),
+    staleTime: 5 * MINUTO,
+  });
+}

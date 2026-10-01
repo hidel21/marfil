@@ -9,6 +9,7 @@ los permisos, y que un error de negocio nunca sea una traza.
 from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -1355,3 +1356,69 @@ def test_un_abono_que_sobra_no_descuadra_y_deja_el_sobrante_escrito(
     assert str(fila.monto_usd) == "44.00" and str(fila.monto_moneda) == "44.00"
     assert fila.ok
     assert "sobraron 6.00" in fila.notas
+
+
+# ---------------------------------------------------------------- analisis
+def _analizar(cliente_api, token, **params):
+    r = cliente_api.get("/api/v1/analisis", headers=token, params=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_la_serie_suma_lo_mismo_que_los_indicadores(cliente_api, token, engine_api):
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    _abono(cliente_api, token, venta, monto="10.00", fecha=str(date.today()))
+    hoy = date.today()
+    for agrupar in ("dia", "semana", "quincena", "mes"):
+        d = _analizar(
+            cliente_api, token, desde=str(hoy - timedelta(days=60)), hasta=str(hoy), agrupar=agrupar
+        )
+        vendido = sum(Decimal(b["vendido_usd"]) for b in d["serie"])
+        cobrado = sum(Decimal(b["cobrado_usd"]) for b in d["serie"])
+        assert vendido == Decimal(d["indicadores"]["vendido_usd"]), agrupar
+        assert cobrado == Decimal(d["indicadores"]["cobrado_usd"]), agrupar
+        assert sum(b["dias"] for b in d["serie"]) == 61, "cada dia cae en un solo periodo"
+
+
+def test_la_quincena_corta_el_15_y_se_recorta_al_rango(cliente_api, token):
+    d = _analizar(cliente_api, token, desde="2026-08-10", hasta="2026-09-20", agrupar="quincena")
+    periodos = [(b["desde"], b["hasta"]) for b in d["serie"]]
+    assert periodos == [
+        ("2026-08-10", "2026-08-15"),
+        ("2026-08-16", "2026-08-31"),
+        ("2026-09-01", "2026-09-15"),
+        ("2026-09-16", "2026-09-20"),
+    ]
+
+
+def test_el_periodo_anterior_tiene_el_mismo_largo(cliente_api, token):
+    d = _analizar(cliente_api, token, desde="2026-09-01", hasta="2026-09-15")
+    assert d["anterior"] == {"desde": "2026-08-17", "hasta": "2026-08-31"}
+
+
+def test_filtrar_por_vendedor_recorta_todo(cliente_api, token, engine_api):
+    _venta_registrada(cliente_api, token, engine_api)
+    hoy = str(date.today())
+    todos = _analizar(cliente_api, token, desde=hoy, hasta=hoy)
+    nadie = _analizar(cliente_api, token, desde=hoy, hasta=hoy, vendedor_id=999999)
+    assert todos["indicadores"]["ventas"] >= 1
+    assert nadie["indicadores"]["ventas"] == 0
+    assert nadie["desgloses"]["productos"] == []
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"desde": "2026-09-10", "hasta": "2026-09-01"},
+        {"desde": "2020-01-01", "hasta": "2026-01-01"},
+    ],
+)
+def test_un_periodo_imposible_se_rechaza(cliente_api, token, params):
+    r = cliente_api.get("/api/v1/analisis", headers=token, params=params)
+    assert r.status_code == 422
+
+
+def test_las_opciones_solo_traen_lo_que_tiene_ventas(cliente_api, token, engine_api):
+    _venta_registrada(cliente_api, token, engine_api)
+    o = cliente_api.get("/api/v1/analisis/opciones", headers=token).json()
+    assert o["vendedores"] and o["productos"] and o["clientes"]
