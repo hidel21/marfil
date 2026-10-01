@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import text
 
 from app.api.deps import SesionDb, Usuario
+from app.services import verificacion as verif_svc
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -112,5 +113,8 @@ def resumen(db: SesionDb, actual: Usuario, dias: int = Query(default=30, ge=7, l
         "actividad": [dict(f) for f in actividad],
         "top_productos": [dict(f) for f in top],
         "ventas_recientes": [dict(f) for f in recientes],
+        # Lo que falta revisar contra el banco. Va en el resumen y no solo en su
+        # pantalla porque es lo que se olvida: un pago sin confirmar no avisa solo.
+        "verificacion": verif_svc.resumen(db),
         "dias": dias,
     }

@@ -1237,3 +1237,121 @@ def test_un_reverso_puede_caer_en_la_fecha_del_abono_original(cliente_api, token
             text("SELECT fecha FROM pagos WHERE id = :i"), {"i": r.json()["reverso_id"]}
         ).scalar()
     assert str(fecha) == "2026-07-11"
+
+
+# --------------------------------------------------- verificacion bancaria
+def _abono(cliente_api, token, venta: int, monto: str = "10.00", fecha: str = "2026-08-10") -> int:
+    r = cliente_api.post(
+        "/api/v1/pagos",
+        headers=token,
+        json={"venta_id": venta, "fecha": fecha, "canal": "efectivo_usd", "monto_moneda": monto},
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["pago_id"]
+
+
+def _ids(cliente_api, token, estado: str) -> list[int]:
+    r = cliente_api.get(f"/api/v1/pagos/verificacion?estado={estado}&limite=1000", headers=token)
+    assert r.status_code == 200, r.text
+    return [p["id"] for p in r.json()["pagos"]]
+
+
+def test_un_pago_nuevo_nace_por_confirmar_y_se_confirma(cliente_api, token, engine_api):
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    pago = _abono(cliente_api, token, venta)
+    assert pago in _ids(cliente_api, token, "pendiente")
+
+    r = cliente_api.post(
+        "/api/v1/pagos/verificacion/confirmar", headers=token, json={"pago_ids": [pago]}
+    )
+    assert r.status_code == 200, r.text
+    assert pago not in _ids(cliente_api, token, "pendiente")
+    assert pago in _ids(cliente_api, token, "confirmado")
+
+    otra = cliente_api.post(
+        "/api/v1/pagos/verificacion/confirmar", headers=token, json={"pago_ids": [pago]}
+    )
+    assert otra.status_code == 409
+
+
+def test_rechazar_reversa_con_la_fecha_del_pago_y_la_deuda_vuelve(cliente_api, token, engine_api):
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    pago = _abono(cliente_api, token, venta, monto="10.00", fecha="2026-08-10")
+    r = cliente_api.post(
+        f"/api/v1/pagos/{pago}/rechazar", headers=token, json={"motivo": "no llegó al BNC"}
+    )
+    assert r.status_code == 200, r.text
+    with engine_api.begin() as c:
+        fecha, saldo = c.execute(
+            text(
+                "SELECT r.fecha, v.saldo_usd FROM pagos r JOIN ventas v ON v.id = r.venta_id "
+                "WHERE r.anula_pago_id = :p"
+            ),
+            {"p": pago},
+        ).one()
+        # Solo los pagos de esta venta: la base de los tests de API es compartida.
+        malos = c.execute(
+            text(
+                "SELECT count(*) FROM v_conciliacion_pagos x JOIN pagos p ON p.id = x.pago_id "
+                "WHERE NOT x.ok AND p.venta_id = :v"
+            ),
+            {"v": venta},
+        ).scalar()
+    assert str(fecha) == "2026-08-10"
+    assert str(saldo) == "44.00", "la venta de 2 x $22 vuelve a deber todo"
+    assert malos == 0
+    assert pago in _ids(cliente_api, token, "rechazado")
+    assert pago not in _ids(cliente_api, token, "pendiente")
+
+
+def test_confirmar_un_lote_es_todo_o_nada(cliente_api, token, engine_api):
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    bueno = _abono(cliente_api, token, venta)
+    r = cliente_api.post(
+        "/api/v1/pagos/verificacion/confirmar",
+        headers=token,
+        json={"pago_ids": [bueno, 99999999]},
+    )
+    assert r.status_code == 404
+    assert bueno in _ids(cliente_api, token, "pendiente"), "no quedo confirmado a medias"
+
+
+def test_un_pago_reversado_no_queda_pendiente(cliente_api, token, engine_api):
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    pago = _abono(cliente_api, token, venta)
+    cliente_api.post(
+        f"/api/v1/pagos/{pago}/reversar", headers=token, json={"motivo": "cargado dos veces"}
+    )
+    assert pago not in _ids(cliente_api, token, "pendiente")
+
+
+def test_el_resumen_cuenta_lo_que_falta_verificar(cliente_api, token, engine_api):
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    _abono(cliente_api, token, venta)
+    d = cliente_api.get("/api/v1/dashboard/resumen", headers=token).json()
+    assert d["verificacion"]["pendientes"] >= 1
+
+
+def test_un_abono_que_sobra_no_descuadra_y_deja_el_sobrante_escrito(
+    cliente_api, token, engine_api
+):
+    """Antes se recortaban los dolares y el monto recibido quedaba completo."""
+    venta, _, _ = _venta_registrada(cliente_api, token, engine_api)
+    r = cliente_api.post(
+        "/api/v1/pagos",
+        headers=token,
+        json={"venta_id": venta, "fecha": "2026-08-10", "canal": "efectivo_usd",
+              "monto_moneda": "50.00", "permitir_excedente": True},
+    )
+    assert r.status_code == 201, r.text
+    with engine_api.begin() as c:
+        fila = c.execute(
+            text(
+                "SELECT p.monto_moneda, p.monto_usd, p.notas, x.ok FROM pagos p "
+                "JOIN v_conciliacion_pagos x ON x.pago_id = p.id WHERE p.id = :i"
+            ),
+            {"i": r.json()["pago_id"]},
+        ).one()
+    assert str(fila.monto_usd) == "44.00" and str(fila.monto_moneda) == "44.00"
+    assert fila.ok
+    assert "sobraron 6.00" in fila.notas

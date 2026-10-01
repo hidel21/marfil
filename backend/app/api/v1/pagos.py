@@ -12,6 +12,7 @@ from sqlalchemy import text
 from app.api.deps import AdminOVendedor, PuedeEscribir, SesionDb, SoloAdmin
 from app.models.enums import CanalPago
 from app.services import pagos as svc
+from app.services import verificacion as verif_svc
 
 router = APIRouter(prefix="/pagos", tags=["pagos"])
 
@@ -78,6 +79,11 @@ def tasa_sugerida(
     """
     del actual
     from app.api.errors import ErrorNegocio
+    from app.services import tasas_frescas
+
+    # Si la ultima tasa no es de hoy, se trae antes de sugerir: es el momento exacto en
+    # que hace falta, y no depende de que el cron este configurado.
+    tasas_frescas.asegurar()
 
     try:
         t = svc.resolver_tasa(db, en_fecha=en_fecha or date.today(), tipo=tipo)
@@ -180,3 +186,46 @@ def listar(
         params,
     ).all()
     return [dict(f._mapping) for f in filas]
+
+
+# ------------------------------------------------------- verificacion bancaria
+@router.get("/verificacion")
+def verificacion(
+    db: SesionDb,
+    actual: SoloAdmin,
+    estado: str = Query(default="pendiente", pattern="^(pendiente|confirmado|rechazado)$"),
+    limite: int = Query(default=200, le=1000),
+):
+    """Los abonos por confirmar contra el banco (o los ya confirmados / rechazados)."""
+    del actual
+    return {
+        "resumen": verif_svc.resumen(db),
+        "pagos": verif_svc.listar(db, estado=estado, limite=limite),
+    }
+
+
+class ConfirmacionEntrada(BaseModel):
+    pago_ids: list[int] = Field(min_length=1, max_length=500)
+    nota: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/verificacion/confirmar")
+def confirmar(datos: ConfirmacionEntrada, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir):
+    """Llegaron al banco. Todo o nada: si uno no se puede confirmar, no se confirma ninguno."""
+    n = verif_svc.confirmar(db, pago_ids=datos.pago_ids, usuario_id=actual.id, nota=datos.nota)
+    db.commit()
+    return {"confirmados": n, **verif_svc.resumen(db)}
+
+
+class RechazoEntrada(BaseModel):
+    motivo: str = Field(min_length=5, max_length=500)
+
+
+@router.post("/{pago_id}/rechazar")
+def rechazar(
+    pago_id: int, datos: RechazoEntrada, db: SesionDb, actual: SoloAdmin, _: PuedeEscribir
+):
+    """No llego: se reversa con su fecha y la deuda del cliente vuelve."""
+    reverso_id = verif_svc.rechazar(db, pago_id=pago_id, usuario_id=actual.id, motivo=datos.motivo)
+    db.commit()
+    return {"reverso_id": reverso_id, "pago_id": pago_id, **verif_svc.resumen(db)}

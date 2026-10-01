@@ -534,3 +534,100 @@ export function usePagosDeVenta(ventaId: number | null) {
     staleTime: 30_000,
   });
 }
+
+// ----------------------------------------------------- verificacion bancaria
+export type PagoAVerificar = {
+  id: number;
+  fecha: string;
+  venta_id: number;
+  venta: string;
+  cliente: string;
+  canal: string | null;
+  referencia: string | null;
+  moneda: string;
+  monto_moneda: Monto;
+  tasa_aplicada: Monto;
+  monto_usd: Monto;
+  notas: string | null;
+  registrado_por: string | null;
+  registrado_at: string;
+  estado: "pendiente" | "confirmado" | "rechazado";
+  verificado_por: string | null;
+  verificado_at: string | null;
+  nota_verificacion: string | null;
+};
+
+export function useVerificacion(estado: string, enabled = true) {
+  return useQuery({
+    queryKey: ["pagos", "verificacion", estado],
+    queryFn: () =>
+      api.get<{ resumen: { pendientes: number; pendientes_usd: Monto }; pagos: PagoAVerificar[] }>(
+        "/pagos/verificacion",
+        { estado, limite: 500 },
+      ),
+    staleTime: MINUTO,
+    enabled,
+  });
+}
+
+/** Confirmar y rechazar mueven saldo (el rechazo reversa): se invalida lo derivado. */
+function invalidarVerificacion(qc: ReturnType<typeof useQueryClient>) {
+  for (const clave of ["pagos", "cobranza", "dashboard", "finanzas", "auditoria"]) {
+    qc.invalidateQueries({ queryKey: [clave] });
+  }
+}
+
+export function useConfirmarPagos() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (datos: { pago_ids: number[]; nota?: string }) =>
+      api.post<{ confirmados: number }>("/pagos/verificacion/confirmar", datos),
+    onSuccess: () => invalidarVerificacion(qc),
+  });
+}
+
+export function useRechazarPago() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo: string }) =>
+      api.post<{ reverso_id: number }>(`/pagos/${id}/rechazar`, { motivo }),
+    onSuccess: () => invalidarVerificacion(qc),
+  });
+}
+
+// ------------------------------------------------------------ importar Excel
+export type ResumenImportacion = Record<string, Record<string, number>>;
+
+export function useImportarExcel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ archivo, modo }: { archivo: File; modo: "plan" | "aplicar" }) => {
+      const formulario = new FormData();
+      formulario.append("archivo", archivo);
+      return api.subir<{
+        modo: string;
+        ya_aplicado?: boolean;
+        resumen?: ResumenImportacion;
+        aplicadas?: ResumenImportacion;
+        importacion_id?: number;
+        reporte_md: string;
+      }>("/importaciones/excel", formulario, { modo });
+    },
+    onSuccess: (r) => {
+      if (r.modo === "aplicar") {
+        for (const clave of ["ventas", "pagos", "cobranza", "dashboard", "finanzas", "productos", "clientes", "compras", "gastos", "importaciones"]) {
+          qc.invalidateQueries({ queryKey: [clave] });
+        }
+      }
+    },
+  });
+}
+
+export function useHistorialImportaciones() {
+  return useQuery({
+    queryKey: ["importaciones"],
+    queryFn: () =>
+      api.get<{ id: number; archivo: string; hash: string; estado: string; importado_at: string; importado_por: string | null; filas: number; enlaces: number }[]>("/importaciones"),
+    staleTime: MINUTO,
+  });
+}

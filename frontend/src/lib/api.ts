@@ -107,10 +107,12 @@ type Opciones = {
   cuerpo?: unknown;
   params?: Record<string, string | number | boolean | undefined | null>;
   sinAuth?: boolean;
+  /** Para subir archivos. El navegador pone el Content-Type con su boundary. */
+  formulario?: FormData;
 };
 
 export async function llamar<T>(ruta: string, opciones: Opciones = {}): Promise<T> {
-  const { metodo = "GET", cuerpo, params, sinAuth = false } = opciones;
+  const { metodo = "GET", cuerpo, params, sinAuth = false, formulario } = opciones;
 
   const url = new URL(`/api/v1${ruta}`, window.location.origin);
   for (const [k, v] of Object.entries(params ?? {})) {
@@ -125,7 +127,7 @@ export async function llamar<T>(ruta: string, opciones: Opciones = {}): Promise<
         ...(cuerpo !== undefined ? { "Content-Type": "application/json" } : {}),
         ...(!sinAuth && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
-      ...(cuerpo !== undefined ? { body: JSON.stringify(cuerpo) } : {}),
+      ...(formulario ? { body: formulario } : cuerpo !== undefined ? { body: JSON.stringify(cuerpo) } : {}),
     });
 
   let res = await enviar();
@@ -160,6 +162,8 @@ export const api = {
   post: <T>(ruta: string, cuerpo?: unknown, params?: Opciones["params"]) =>
     llamar<T>(ruta, { metodo: "POST", cuerpo, params }),
   put: <T>(ruta: string, cuerpo?: unknown) => llamar<T>(ruta, { metodo: "PUT", cuerpo }),
+  subir: <T>(ruta: string, formulario: FormData, params?: Opciones["params"]) =>
+    llamar<T>(ruta, { metodo: "POST", formulario, params }),
   descargar,
   publico: {
     post: <T>(ruta: string, cuerpo?: unknown) =>

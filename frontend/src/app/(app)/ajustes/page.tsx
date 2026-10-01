@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bot, CreditCard, KeyRound, Landmark, RefreshCw, Users } from "lucide-react";
+import { Bot, CreditCard, FileSpreadsheet, KeyRound, Landmark, RefreshCw, Users } from "lucide-react";
 import { Insignia, Tarjeta, Titulo } from "@/components/ui";
 import { useDatosPago } from "@/hooks/datos";
 
@@ -59,6 +59,16 @@ export default function Ajustes() {
             <Bot className="size-5 text-marca" />
             <p className="mt-3 font-medium">Automatizaciones</p>
             <p className="mt-1 text-xs text-texto-suave">Conciliación, sesiones y captura de tasa.</p>
+          </Tarjeta>
+        </Link>
+
+        <Link href="/ajustes/importar">
+          <Tarjeta className="h-full transition hover:border-marca">
+            <FileSpreadsheet className="size-5 text-marca" />
+            <p className="mt-3 font-medium">Importar Excel</p>
+            <p className="mt-1 text-xs text-texto-suave">
+              Cargar el libro de ventas y pagos sin duplicar lo que ya está.
+            </p>
           </Tarjeta>
         </Link>
 

@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   BadgeDollarSign,
   BarChart3,
+  BadgeCheck,
   Boxes,
   ClipboardCheck,
   FileText,
@@ -25,7 +26,7 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import { useCalidad, useDatosPago } from "@/hooks/datos";
+import { useCalidad, useDatosPago, useVerificacion } from "@/hooks/datos";
 import { useSesion } from "@/hooks/sesion";
 import type { Rol } from "@/lib/tipos";
 import { Insignia } from "./ui";
@@ -47,6 +48,7 @@ const NAVEGACION: Entrada[] = [
   { ruta: "/cobranza", etiqueta: "Cobranza", icono: <BadgeDollarSign />, roles: OPERADORES, grupo: "Principal" },
   { ruta: "/ventas/nueva", etiqueta: "Registrar venta", icono: <ShoppingCart />, roles: OPERADORES, grupo: "Principal" },
   { ruta: "/abonos/nuevo", etiqueta: "Registrar abono", icono: <HandCoins />, roles: OPERADORES, grupo: "Principal" },
+  { ruta: "/pagos/confirmar", etiqueta: "Confirmar pagos", icono: <BadgeCheck />, roles: ["admin"], grupo: "Principal" },
   { ruta: "/recordatorios", etiqueta: "Recordatorios", icono: <MessageSquare />, roles: OPERADORES, grupo: "Principal" },
   { ruta: "/clientes", etiqueta: "Clientes", icono: <Users />, roles: OPERADORES, grupo: "Operación" },
   { ruta: "/productos", etiqueta: "Productos", icono: <Package />, roles: OPERADORES, grupo: "Operación" },
@@ -73,6 +75,13 @@ export function Shell({ children }: { children: ReactNode }) {
   const datosPago = useDatosPago(yo?.rol === "admin");
 
   const criticas = (calidad.data ?? []).filter((t) => t.severidad === "critica");
+  const verificacion = useVerificacion("pendiente", yo?.rol === "admin");
+  // Lo que cada entrada del menu tiene pendiente. Un pago sin confirmar no avisa
+  // solo: si el numero no esta a la vista, se acumula hasta que alguien pregunta.
+  const insignias: Record<string, number> = {
+    "/auditoria": criticas.length,
+    "/pagos/confirmar": Number(verificacion.data?.resumen.pendientes ?? 0),
+  };
   const entradas = NAVEGACION.filter((e) => yo && e.roles.includes(yo.rol));
   const accesosMoviles = entradas.filter((e) => MOVIL.includes(e.ruta));
 
@@ -92,7 +101,7 @@ export function Shell({ children }: { children: ReactNode }) {
               <div key={grupo} className="mb-5">
                 <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/40">{grupo}</p>
                 <div className="space-y-1">
-                  {delGrupo.map((e) => <EntradaNavegacion key={e.ruta} entrada={e} activa={activo(ruta, e.ruta)} criticas={criticas.length} />)}
+                  {delGrupo.map((e) => <EntradaNavegacion key={e.ruta} entrada={e} activa={activo(ruta, e.ruta)} pendientes={insignias[e.ruta] ?? 0} />)}
                 </div>
               </div>
             );
@@ -144,7 +153,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <nav className="py-4">
               {entradas.map((e) => (
                 <Link key={e.ruta} href={e.ruta} onClick={() => setMenuAbierto(false)} className={clsx("mb-1 flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm font-medium [&>svg]:size-5", activo(ruta, e.ruta) ? "bg-acento-suave text-marca" : "text-texto-suave hover:bg-fondo")}>
-                  {e.icono}<span className="flex-1">{e.etiqueta}</span>{e.ruta === "/auditoria" && criticas.length > 0 && <Insignia tono="critico">{criticas.length}</Insignia>}
+                  {e.icono}<span className="flex-1">{e.etiqueta}</span>{(insignias[e.ruta] ?? 0) > 0 && <Insignia tono="critico">{insignias[e.ruta]}</Insignia>}
                 </Link>
               ))}
             </nav>
@@ -156,10 +165,10 @@ export function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-function EntradaNavegacion({ entrada: e, activa, criticas }: { entrada: Entrada; activa: boolean; criticas: number }) {
+function EntradaNavegacion({ entrada: e, activa, pendientes }: { entrada: Entrada; activa: boolean; pendientes: number }) {
   return (
     <Link href={e.ruta} className={clsx("flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm transition [&>svg]:size-[1.1rem]", activa ? "bg-white/12 font-semibold text-[#fff7df]" : "text-white/65 hover:bg-white/7 hover:text-white")}>
-      {e.icono}<span className="flex-1">{e.etiqueta}</span>{e.ruta === "/auditoria" && criticas > 0 && <span className="grid min-w-5 place-items-center rounded-full bg-critico px-1 text-[10px] font-bold text-white">{criticas}</span>}
+      {e.icono}<span className="flex-1">{e.etiqueta}</span>{pendientes > 0 && <span className="grid min-w-5 place-items-center rounded-full bg-critico px-1 text-[10px] font-bold text-white">{pendientes}</span>}
     </Link>
   );
 }
