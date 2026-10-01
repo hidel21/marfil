@@ -26,7 +26,7 @@ from app.api.errors import (
     ErrorNegocio,
     NoEncontrado,
 )
-from app.core.dinero import convertir_a_usd, cuantizar
+from app.core.dinero import convertir_a_moneda, convertir_a_usd, cuantizar
 from app.models.enums import CanalPago, Moneda, OrigenTasa
 
 #: Canales que se cobran en bolivares y por lo tanto exigen tasa.
@@ -260,7 +260,22 @@ def registrar(
                     "del mismo cliente, o confirmá para dejarlo como saldo a favor."
                 ),
             )
+        # Se registra la parte que se aplica, en las dos monedas. Antes se recortaban
+        # solo los dolares y el monto recibido quedaba completo: la fila incumplia
+        # `monto_usd = monto_moneda / tasa` y aparecia como descuadre para siempre.
+        # Lo que sobra no tiene adonde ir —no hay un libro de saldo a favor— asi que se
+        # deja escrito en la nota en vez de perderse sin rastro.
+        recibido = cuantizar(monto_moneda)
         monto_usd = cuantizar(venta.saldo_usd)
+        monto_moneda = (
+            convertir_a_moneda(monto_usd, tasa.valor) if en_bolivares else monto_usd
+        )
+        sobrante = cuantizar(recibido - monto_moneda)
+        aviso = (
+            f"Recibido {recibido} {moneda.value}; se aplicó {monto_moneda} y sobraron "
+            f"{sobrante} {moneda.value} (${excedente}) que quedan a favor del cliente."
+        )
+        notas = f"{notas} {aviso}".strip() if notas else aviso
 
     if cuota_id is None:
         cuota_id = sesion.execute(
