@@ -282,7 +282,8 @@ def construir() -> Path:
         ["Bloque", "Pantallas", "Para qué"],
         [
             ["Principal",
-             "Resumen, Cobranza, Registrar venta, Registrar abono, Recordatorios",
+             "Resumen, Cobranza, Registrar venta, Registrar abono, Confirmar pagos, "
+             "Recordatorios",
              "El día a día. Es donde vas a pasar casi todo el tiempo."],
             ["Operación",
              "Clientes, Productos, Compras, Gastos",
@@ -463,8 +464,39 @@ def construir() -> Path:
         "práctica hacerlo siempre: evita discusiones después."
     )
 
+    # ------------------------------------------------------------------- 6
+    pdf.h1("SECCIÓN 6", "Confirmar pagos contra el banco")
+    pdf.p(
+        "Menú Principal → Confirmar pagos. Un pago registrado no es un pago recibido: el "
+        "pago móvil se anota con la referencia que manda el cliente, y la plata llega —o "
+        "no— a la cuenta del negocio. Esta pantalla es donde se verifica."
+    )
+    pdf.p(
+        "Todo pago nace \"por confirmar\". Mientras tanto ya descuenta la deuda del "
+        "cliente, para que Cobranza no persiga a quien pagó solo porque falta revisar el "
+        "banco. El número rojo junto al menú dice cuántos quedan."
+    )
+    pdf.pasos([
+        "Abrí el estado de cuenta del banco al lado.",
+        "Filtrá por método si te sirve (por ejemplo, solo pago móvil).",
+        "Marcá los pagos que aparecen en el banco, por referencia y monto.",
+        "Pulsá \"Confirmar\". Se confirman todos juntos, o ninguno si alguno falla.",
+    ])
+    pdf.h2("Si un pago no llegó")
+    pdf.p(
+        "En su fila, \"No llegó\" pide un motivo y lo rechaza. El pago se reversa con su "
+        "fecha original y la deuda vuelve a la venta. Queda escrito quién lo rechazó y "
+        "por qué, y se puede ver en el filtro \"Rechazados\"."
+    )
+    pdf.nota(
+        "Rechazar no es lo mismo que anular una venta",
+        "Rechazar dice que ese cobro no ocurrió; la venta sigue y el cliente vuelve a "
+        "deber. Si además la venta no ocurrió, se anula aparte, como explica la sección "
+        "siguiente.",
+    )
+
     # ----------------------------------------------------------------------- 6
-    pdf.h1("SECCIÓN 6", "Corregir un error")
+    pdf.h1("SECCIÓN 7", "Corregir un error")
     pdf.p(
         "Todo lo que se puede cargar se puede corregir, y siempre queda registrado "
         "quién lo hizo y por qué. El motivo es obligatorio en todos los casos: no es "
@@ -520,10 +552,16 @@ def construir() -> Path:
     )
 
     # ----------------------------------------------------------------------- 7
-    pdf.h1("SECCIÓN 7", "Productos")
+    pdf.h1("SECCIÓN 8", "Productos")
     pdf.p(
         "Menú Operación → Productos. Cada producto tiene su costo y sus tres niveles "
         "de precio: público, team y revendedor."
+    )
+    pdf.h2("Crear un producto")
+    pdf.p(
+        "Botón \"Nuevo producto\", arriba a la derecha. Pide el nombre y, si ya lo sabés, "
+        "el costo. Con costo queda activo y con precio calculado; sin costo entra a la "
+        "cola de Revisión hasta que lo cargues. Si el nombre ya existe, no se duplica."
     )
     pdf.h2("Cargar los costos que faltan")
     pdf.p(
@@ -557,7 +595,7 @@ def construir() -> Path:
     )
 
     # ----------------------------------------------------------------------- 8
-    pdf.h1("SECCIÓN 8", "Compras y proveedores")
+    pdf.h1("SECCIÓN 9", "Compras y proveedores")
     pdf.p(
         "Menú Operación → Compras. Cada lote aumenta el stock y actualiza el costo de "
         "los productos que trae."
@@ -605,7 +643,7 @@ def construir() -> Path:
     )
 
     # ----------------------------------------------------------------------- 9
-    pdf.h1("SECCIÓN 9", "Gastos")
+    pdf.h1("SECCIÓN 10", "Gastos")
     pdf.p(
         "Menú Operación → Gastos. Son los costos operativos, separados de la compra de "
         "inventario: publicidad, envíos, empaque, servicios, comisiones."
@@ -629,7 +667,7 @@ def construir() -> Path:
     )
 
     # ---------------------------------------------------------------------- 10
-    pdf.h1("SECCIÓN 10", "Recordatorios de cobro")
+    pdf.h1("SECCIÓN 11", "Recordatorios de cobro")
     pdf.p(
         "Menú Principal → Recordatorios. Marfil arma el mensaje con el nombre del "
         "cliente, lo que debe y los datos para pagarte, y genera un enlace de WhatsApp "
@@ -652,7 +690,7 @@ def construir() -> Path:
     )
 
     # ---------------------------------------------------------------------- 11
-    pdf.h1("SECCIÓN 11", "Gestión y control")
+    pdf.h1("SECCIÓN 12", "Gestión y control")
     pdf.vinetas([
         ("Resumen",
          "La foto del día: ventas, cobros y lo que está por vencer. Es la pantalla con "
@@ -693,7 +731,7 @@ def construir() -> Path:
     )
 
     # ---------------------------------------------------------------------- 12
-    pdf.h1("SECCIÓN 12", "Ajustes")
+    pdf.h1("SECCIÓN 13", "Ajustes")
     pdf.p(
         "Menú Gestión → Ajustes. Como administradores pueden tocar todo esto, así que "
         "conviene saber qué hace cada cosa antes de cambiarla."
@@ -706,7 +744,8 @@ def construir() -> Path:
              "Sin esto, los recordatorios no se envían."],
             ["Tasas",
              "Las cinco series que el sistema captura solo cada día: dólar BCV, dólar "
-             "paralelo, USDT, euro oficial y euro paralelo. Se puede corregir la de un "
+             "paralelo, USDT, euro oficial y euro paralelo. La app las trae sola cuando "
+             "hacen falta, sin depender de que nadie las cargue. Se puede corregir la de un "
              "día a mano con un motivo, y esa corrección no la pisa la captura "
              "automática del día siguiente."],
             ["Política",
@@ -714,6 +753,10 @@ def construir() -> Path:
              "a todas las ventas siguientes."],
             ["Usuarios",
              "Crear cuentas y regenerar códigos de activación."],
+            ["Importar Excel",
+             "Cargar el libro de ventas, pagos y gastos. Primero se revisa qué haría y "
+             "después se aplica; lo que ya está en la base no se duplica, y lo que el libro "
+             "marca en revisión no se carga."],
             ["Automatizaciones",
              "El estado de las tareas diarias. Deberían estar todas en \"ok\"."],
             ["Mi contraseña",
@@ -723,7 +766,7 @@ def construir() -> Path:
     )
 
     # ---------------------------------------------------------------------- 13
-    pdf.h1("SECCIÓN 13", "Cuando algo no funciona")
+    pdf.h1("SECCIÓN 14", "Cuando algo no funciona")
     pdf.tabla(
         ["Lo que ves", "Qué significa y qué hacer"],
         [
@@ -745,6 +788,9 @@ def construir() -> Path:
              "Faltan los datos de pago. Ajustes → Datos de pago."],
             ["No me deja anular una venta",
              "Tiene abonos sin reversar. Reversalos primero desde \"Ver abonos\"."],
+            ["El número rojo en \"Confirmar pagos\" no baja",
+             "Hay pagos sin verificar contra el banco. No bloquean nada, pero mientras no "
+             "se confirmen no hay constancia de que la plata llegó."],
             ["Un cliente aparece dos veces",
              "Se crearon dos fichas de la misma persona. Avisá antes de seguir "
              "cargándole ventas: hay que fusionarlas para que la deuda quede en una."],
@@ -753,7 +799,7 @@ def construir() -> Path:
     )
 
     # ---------------------------------------------------------------------- 14
-    pdf.h1("SECCIÓN 14", "Cuidados básicos")
+    pdf.h1("SECCIÓN 15", "Cuidados básicos")
     pdf.vinetas([
         ("Tu contraseña es tuya y no se comparte.",
          "El sistema registra quién hizo cada operación. Si prestás tu acceso, lo que "
