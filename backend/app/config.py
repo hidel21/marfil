@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     #: viva. En plataformas que duermen, el mismo trabajo se dispara por el endpoint
     #: protegido desde un cron externo.
     jobs_habilitados: bool = Field(default=False)
+    #: Que la app ponga al dia las tasas por su cuenta cuando las necesita, sin
+    #: depender del cron. Apagado en los tests, que no salen a internet.
+    tasas_automaticas: bool = Field(default=True)
     job_secret: str = Field(default="")
     # `tasa_api_url` vivia aca cuando la captura era una sola URL. Ahora son cinco
     # series de dos proveedores y cada una tiene su ruta; las rutas viven en

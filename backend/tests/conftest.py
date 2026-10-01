@@ -29,6 +29,8 @@ if str(RAIZ_BACKEND) not in sys.path:
 # correcto, para que los tokens no sobrevivan un reinicio—, pero eso hace que limpiar
 # la cache de settings rote el secreto y invalide un token ya emitido.
 os.environ.setdefault("JWT_SECRET", "secreto-fijo-solo-para-los-tests-de-marfil-1234")
+# La app actualiza las tasas sola al pedirlas; en los tests eso seria salir a internet.
+os.environ.setdefault("TASAS_AUTOMATICAS", "false")
 
 URL_ADMIN = os.getenv(
     "MARFIL_TEST_ADMIN_URL", "postgresql+psycopg://odoo:odoo@localhost:5432/postgres"

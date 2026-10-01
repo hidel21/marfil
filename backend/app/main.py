@@ -59,6 +59,10 @@ async def ciclo_de_vida(app: FastAPI):
         app.state.revision_db = None
 
     iniciar_scheduler()
+    # En otro hilo: el arranque no espera a dolarapi, y el health check tampoco.
+    from app.services import tasas_frescas
+
+    tasas_frescas.asegurar_en_segundo_plano()
     try:
         yield
     finally:
