@@ -476,13 +476,18 @@ function AbonosDeVenta({ ventaId }: { ventaId: number }) {
   const pagos = usePagosDeVenta(abierto ? ventaId : null);
   const reversar = useReversarPago();
   const [motivos, setMotivos] = useState<Record<number, string>>({});
+  // Marcado por defecto: este panel existe para corregir abonos cargados mal, y un
+  // error de carga se corrige en el día del abono. Una devolución real va desmarcada.
+  const [enFechaOriginal, setEnFechaOriginal] = useState(true);
 
   async function confirmar(id: number) {
     const motivo = (motivos[id] ?? "").trim();
     try {
-      await reversar.mutateAsync({ id, motivo });
+      await reversar.mutateAsync({ id, motivo, enFechaOriginal });
       toast.success("Abono reversado", {
-        description: "Queda el original y su reverso, para poder auditarlo.",
+        description: enFechaOriginal
+          ? "En la fecha del abono original. Queda el original y su reverso, para auditarlo."
+          : "Con fecha de hoy. Queda el original y su reverso, para auditarlo.",
       });
       setMotivos((m) => ({ ...m, [id]: "" }));
     } catch (err) {
@@ -541,6 +546,21 @@ function AbonosDeVenta({ ventaId }: { ventaId: number }) {
             </Boton>
           </div>
         ))
+      )}
+      {abonos.length > 0 && (
+        <label className="flex items-start gap-2 border-t border-borde pt-1 text-texto-suave">
+          <input
+            type="checkbox"
+            checked={enFechaOriginal}
+            onChange={(e) => setEnFechaOriginal(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Fue un error de carga (monto o cliente equivocado): el reverso va en la fecha del
+            abono, así ese mes y la caja quedan como fueron. Desmarcalo si es una devolución
+            hecha hoy.
+          </span>
+        </label>
       )}
       {reversados.size > 0 && (
         <p className="border-t border-borde pt-1 text-texto-suave">
