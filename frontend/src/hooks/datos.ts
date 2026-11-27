@@ -13,6 +13,7 @@ import type {
   FugaPrecio,
   Gasto,
   LoteRecordatorios,
+  ResumenCaja,
   ResumenCobranza,
   ResumenDashboard,
   ResumenFinanzas,
@@ -449,13 +450,22 @@ export function useAnularVenta() {
   });
 }
 
+/**
+ * `enFechaOriginal`: el reverso cae el día del abono y no hoy. Es lo correcto para un
+ * error de carga (monto mal, cliente equivocado): en la realidad ese día no entró esa
+ * plata, y con la fecha de hoy un mes quedaría inflado y el actual con un cobro
+ * negativo. Una devolución de verdad, en cambio, ocurre hoy.
+ */
 export function useReversarPago() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, motivo }: { id: number; motivo: string }) =>
-      api.post<{ reverso_id: number }>(`/pagos/${id}/reversar`, { motivo }),
+    mutationFn: ({ id, motivo, enFechaOriginal = false }: { id: number; motivo: string; enFechaOriginal?: boolean }) =>
+      api.post<{ reverso_id: number }>(`/pagos/${id}/reversar`, {
+        motivo,
+        en_fecha_original: enFechaOriginal,
+      }),
     onSuccess: () => {
-      for (const clave of ["pagos", "cobranza", "dashboard", "finanzas"]) {
+      for (const clave of ["pagos", "cobranza", "dashboard", "finanzas", "caja"]) {
         qc.invalidateQueries({ queryKey: [clave] });
       }
     },
@@ -693,5 +703,44 @@ export function useOpcionesAnalisis() {
         primera_venta: string | null;
       }>("/analisis/opciones"),
     staleTime: 5 * MINUTO,
+  });
+}
+
+/**
+ * La caja se pide fresca cada vez (`staleTime: 0`): la mueven cobros, reversos, gastos y
+ * pagos a proveedor desde cinco pantallas distintas, y un saldo viejo en pantalla es
+ * justamente lo que esta vista existe para evitar.
+ */
+export function useCaja(filtros: { desde?: string; hasta?: string } = {}) {
+  return useQuery({
+    queryKey: ["caja", filtros],
+    queryFn: () => api.get<ResumenCaja>("/caja", filtros),
+    staleTime: 0,
+  });
+}
+
+export function useRegistrarMovimientoCaja() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (cuerpo: {
+      fecha: string;
+      tipo: "aporte" | "retiro" | "ajuste";
+      monto_usd: string;
+      concepto: string;
+      sentido?: "entrada" | "salida";
+      socio_id?: number;
+      canal?: string;
+      notas?: string;
+    }) => api.post<{ movimiento_id: number }>("/caja/movimientos", cuerpo),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["caja"] }),
+  });
+}
+
+export function useAnularMovimientoCaja() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, motivo }: { id: number; motivo: string }) =>
+      api.post(`/caja/movimientos/${id}/anular`, { motivo }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["caja"] }),
   });
 }

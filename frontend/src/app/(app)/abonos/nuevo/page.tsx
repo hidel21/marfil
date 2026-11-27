@@ -88,6 +88,7 @@ function NuevoAbono() {
   const [tasaManual, setTasaManual] = useState("");
   const [tipoTasa, setTipoTasa] = useState("bcv");
   const [referencia, setReferencia] = useState("");
+  const [notas, setNotas] = useState("");
   const [permitirExcedente, setPermitirExcedente] = useState(false);
 
   const cobranza = useCobranza({ incluir_socios: true });
@@ -126,6 +127,7 @@ function NuevoAbono() {
         ...(canal.startsWith("otro:") ? { en_bolivares: enBolivares } : {}),
         ...(enBolivares && tasaManual ? { tasa_aplicada: tasaManual } : {}),
         ...(referencia.trim() ? { referencia: referencia.trim() } : {}),
+        ...(notas.trim() ? { notas: notas.trim() } : {}),
         permitir_excedente: permitirExcedente,
       });
       toast.success(`Abono de ${usd(r.monto_usd as string)} registrado`, {
@@ -280,6 +282,18 @@ function NuevoAbono() {
               value={referencia}
               onChange={(e) => setReferencia(e.target.value)}
               placeholder={enBolivares ? "Ej. 5863" : "Recibo o nota"}
+            />
+          </Campo>
+
+          <Campo
+            etiqueta="Notas"
+            ayuda="Opcional. Si estás volviendo a cargar un abono que reversaste porque iba a otro cliente, dejá la referencia vacía y anotala aquí: el original reversado ya la tiene."
+          >
+            <Input
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              maxLength={1000}
+              placeholder="Ej. corrige el abono cargado a Polanco por error, ref. 1826"
             />
           </Campo>
 

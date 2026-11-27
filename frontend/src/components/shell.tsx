@@ -24,6 +24,7 @@ import {
   ShoppingCart,
   TrendingUp,
   Users,
+  Wallet,
   WalletCards,
   X,
 } from "lucide-react";
@@ -55,6 +56,7 @@ const NAVEGACION: Entrada[] = [
   { ruta: "/productos", etiqueta: "Productos", icono: <Package />, roles: OPERADORES, grupo: "Operación" },
   { ruta: "/compras", etiqueta: "Compras", icono: <Boxes />, roles: ["admin"], grupo: "Operación" },
   { ruta: "/gastos", etiqueta: "Gastos", icono: <ReceiptText />, roles: ["admin"], grupo: "Operación" },
+  { ruta: "/caja", etiqueta: "Caja", icono: <Wallet />, roles: ["admin"], grupo: "Gestión" },
   { ruta: "/analisis", etiqueta: "Análisis", icono: <TrendingUp />, roles: ["admin"], grupo: "Gestión" },
   { ruta: "/finanzas", etiqueta: "Finanzas", icono: <BarChart3 />, roles: ["admin"], grupo: "Gestión" },
   { ruta: "/socios", etiqueta: "Socios", icono: <WalletCards />, roles: ["admin"], grupo: "Gestión" },

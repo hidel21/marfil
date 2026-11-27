@@ -371,3 +371,37 @@ export type Automatizacion = {
     error: string | null;
   };
 };
+
+export type MovimientoCaja = {
+  /** pago (cobro o su reverso) · gasto · pago_compra · manual (aporte, retiro, ajuste) */
+  origen: "pago" | "gasto" | "pago_compra" | "manual";
+  origen_id: number;
+  fecha: string;
+  tipo: "cobro" | "reverso_cobro" | "gasto" | "compra" | "aporte" | "retiro" | "ajuste";
+  concepto: string;
+  detalle: string | null;
+  canal: string | null;
+  moneda: string;
+  monto_moneda: Monto;
+  /** Con signo: positivo entra, negativo sale. */
+  monto_usd: Monto;
+  /** Saldo de la caja después de este movimiento, sobre toda la historia. */
+  saldo_usd: Monto;
+};
+
+export type ResumenCaja = {
+  saldo_actual_usd: Monto;
+  periodo: {
+    desde: string | null;
+    hasta: string | null;
+    saldo_inicial_usd: Monto;
+    saldo_final_usd: Monto;
+    entradas_usd: Monto;
+    salidas_usd: Monto;
+    movimientos: number;
+  };
+  por_tipo: Array<{ tipo: MovimientoCaja["tipo"]; movimientos: number; monto_usd: Monto }>;
+  por_socio: Array<{ id: number; nombre: string; aportado_usd: Monto; retirado_usd: Monto }>;
+  movimientos: MovimientoCaja[];
+  truncado: boolean;
+};

@@ -1422,3 +1422,147 @@ def test_las_opciones_solo_traen_lo_que_tiene_ventas(cliente_api, token, engine_
     _venta_registrada(cliente_api, token, engine_api)
     o = cliente_api.get("/api/v1/analisis/opciones", headers=token).json()
     assert o["vendedores"] and o["productos"] and o["clientes"]
+
+
+# ------------------------------------------------------------------------ caja
+def _caja(cliente_api, token, **params) -> dict:
+    r = cliente_api.get("/api/v1/caja", headers=token, params=params)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _socio(engine_api) -> int:
+    with engine_api.begin() as c:
+        socio = c.execute(text("SELECT id FROM socios ORDER BY id LIMIT 1")).scalar()
+        if socio is None:
+            socio = c.execute(
+                text("INSERT INTO socios (nombre) VALUES ('Socio de prueba') RETURNING id")
+            ).scalar_one()
+    return socio
+
+
+def _movimiento(cliente_api, token, **cuerpo):
+    return cliente_api.post("/api/v1/caja/movimientos", headers=token, json=cuerpo)
+
+
+def test_un_aporte_entra_y_un_retiro_sale_de_la_caja(cliente_api, token, engine_api):
+    socio = _socio(engine_api)
+    antes = Decimal(_caja(cliente_api, token)["saldo_actual_usd"])
+
+    r = _movimiento(cliente_api, token, tipo="aporte", monto_usd="100.00",
+                    socio_id=socio, concepto="Aporte para el lote")
+    assert r.status_code == 201, r.text
+    assert Decimal(_caja(cliente_api, token)["saldo_actual_usd"]) == antes + 100
+
+    r = _movimiento(cliente_api, token, tipo="retiro", monto_usd="30.00",
+                    socio_id=socio, concepto="Retiro de utilidad")
+    assert r.status_code == 201, r.text
+    d = _caja(cliente_api, token)
+    assert Decimal(d["saldo_actual_usd"]) == antes + 70
+    # El retiro se guarda negativo aunque se cargue en positivo.
+    retiro = next(m for m in d["movimientos"] if m["origen_id"] == r.json()["movimiento_id"]
+                  and m["origen"] == "manual")
+    assert retiro["monto_usd"] == "-30.00"
+    assert any(s["id"] == socio and Decimal(s["aportado_usd"]) >= 100 for s in d["por_socio"])
+
+
+def test_un_cobro_entra_y_su_reverso_lo_saca(cliente_api, token, engine_api):
+    venta = _venta_con_saldo(cliente_api, token, engine_api)
+    antes = Decimal(_caja(cliente_api, token)["saldo_actual_usd"])
+    pago = cliente_api.post(
+        "/api/v1/pagos",
+        headers=token,
+        json={"venta_id": venta, "fecha": str(date.today()), "canal": "efectivo_usd",
+              "monto_moneda": "10.00"},
+    ).json()["pago_id"]
+    assert Decimal(_caja(cliente_api, token)["saldo_actual_usd"]) == antes + 10
+
+    r = cliente_api.post(f"/api/v1/pagos/{pago}/reversar", headers=token,
+                         json={"motivo": "Cargado al cliente equivocado"})
+    assert r.status_code == 201
+    d = _caja(cliente_api, token)
+    assert Decimal(d["saldo_actual_usd"]) == antes
+    tipos = {m["tipo"] for m in d["movimientos"] if m["origen"] == "pago"}
+    assert {"cobro", "reverso_cobro"} <= tipos
+
+
+def test_un_gasto_sale_de_la_caja(cliente_api, token):
+    antes = Decimal(_caja(cliente_api, token)["saldo_actual_usd"])
+    r = cliente_api.post("/api/v1/gastos", headers=token, json={
+        "categoria": "envíos", "descripcion": f"Envío caja {uuid4().hex[:6]}", "monto_usd": "4.50"})
+    assert r.status_code == 201, r.text
+    assert Decimal(_caja(cliente_api, token)["saldo_actual_usd"]) == antes - Decimal("4.50")
+
+
+def test_el_saldo_corrido_empalma_con_el_periodo(cliente_api, token, engine_api):
+    """El saldo de cada fila es el acumulado de TODA la historia, no del periodo."""
+    socio = _socio(engine_api)
+    hace_un_mes = date.today() - timedelta(days=30)
+    _movimiento(cliente_api, token, tipo="aporte", monto_usd="50.00", socio_id=socio,
+                concepto="Aporte viejo", fecha=str(hace_un_mes))
+    desde = date.today() - timedelta(days=7)
+    d = _caja(cliente_api, token, desde=str(desde))
+    p = d["periodo"]
+    assert Decimal(p["saldo_inicial_usd"]) + Decimal(p["entradas_usd"]) - Decimal(
+        p["salidas_usd"]
+    ) == Decimal(p["saldo_final_usd"])
+    if d["movimientos"]:
+        # El primero de la lista es el mas reciente: su saldo es el final del periodo.
+        assert d["movimientos"][0]["saldo_usd"] == p["saldo_final_usd"]
+        assert all(m["fecha"] >= str(desde) for m in d["movimientos"])
+
+
+@pytest.mark.parametrize(
+    ("cuerpo", "codigo"),
+    [
+        ({"tipo": "ajuste", "monto_usd": "5.00", "concepto": "Cuadre"}, "FALTA_SENTIDO"),
+        ({"tipo": "aporte", "monto_usd": "5.00", "concepto": "Sin socio"}, "FALTA_SOCIO"),
+        ({"tipo": "ajuste", "sentido": "entrada", "monto_usd": "5.00", "concepto": "Futuro",
+          "fecha": str(date.today() + timedelta(days=2))}, "FECHA_FUTURA"),
+    ],
+)
+def test_un_movimiento_incompleto_se_rechaza(cliente_api, token, cuerpo, codigo):
+    r = _movimiento(cliente_api, token, **cuerpo)
+    assert r.status_code == 422, r.text
+    assert codigo in r.text
+
+
+def test_anular_un_movimiento_lo_saca_de_la_caja_sin_borrarlo(cliente_api, token, engine_api):
+    antes = Decimal(_caja(cliente_api, token)["saldo_actual_usd"])
+    mov = _movimiento(cliente_api, token, tipo="ajuste", sentido="salida", monto_usd="12.00",
+                      concepto="Ajuste cargado por error").json()["movimiento_id"]
+    assert Decimal(_caja(cliente_api, token)["saldo_actual_usd"]) == antes - 12
+
+    r = cliente_api.post(f"/api/v1/caja/movimientos/{mov}/anular", headers=token,
+                         json={"motivo": "Era de otro mes"})
+    assert r.status_code == 200, r.text
+    assert Decimal(_caja(cliente_api, token)["saldo_actual_usd"]) == antes
+    with engine_api.connect() as c:
+        fila = c.execute(text("SELECT motivo_anulacion FROM movimientos_caja WHERE id = :i"),
+                         {"i": mov}).one()
+    assert fila.motivo_anulacion == "Era de otro mes"
+
+    otra = cliente_api.post(f"/api/v1/caja/movimientos/{mov}/anular", headers=token,
+                            json={"motivo": "Otra vez"})
+    assert otra.status_code == 409
+
+
+def test_la_caja_es_solo_para_admin(cliente_api):
+    assert cliente_api.get("/api/v1/caja").status_code == 401
+
+
+def test_un_reverso_descuenta_de_lo_cobrado_y_no_infla_las_salidas(cliente_api, token, engine_api):
+    """Un cobro corregido no es plata que entró y salió: es un cobro que no fue."""
+    hoy = str(date.today())
+    antes = _caja(cliente_api, token, desde=hoy, hasta=hoy)["periodo"]
+    venta = _venta_con_saldo(cliente_api, token, engine_api)
+    pago = cliente_api.post(
+        "/api/v1/pagos",
+        headers=token,
+        json={"venta_id": venta, "fecha": hoy, "canal": "efectivo_usd", "monto_moneda": "8.00"},
+    ).json()["pago_id"]
+    cliente_api.post(f"/api/v1/pagos/{pago}/reversar", headers=token,
+                     json={"motivo": "Iba a otro cliente"})
+    despues = _caja(cliente_api, token, desde=hoy, hasta=hoy)["periodo"]
+    assert despues["entradas_usd"] == antes["entradas_usd"]
+    assert despues["salidas_usd"] == antes["salidas_usd"]

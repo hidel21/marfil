@@ -35,7 +35,7 @@ ALERTA = (150, 60, 45)
 CREMA_ALERTA = (252, 242, 240)
 
 URL = "https://marfil-sistema.onrender.com"
-FECHA = "Septiembre de 2026"
+FECHA = "Noviembre de 2026"
 
 
 class Manual(FPDF):
@@ -290,9 +290,9 @@ def construir() -> Path:
              "Los datos que alimentan las ventas: a quién le vendés, qué vendés, qué "
              "comprás y en qué gastás."],
             ["Gestión",
-             "Finanzas, Socios, Reportes, Auditoría, Ajustes",
-             "La mirada de arriba: resultados, reparto entre socios, informes y "
-             "configuración."],
+             "Caja, Análisis, Finanzas, Socios, Reportes, Auditoría, Ajustes",
+             "La mirada de arriba: cuánta plata hay, resultados, reparto entre socios, "
+             "informes y configuración."],
         ],
         [0.17, 0.36, 0.47],
     )
@@ -433,7 +433,8 @@ def construir() -> Path:
         "monto ya está en dólares.",
         "Si es en bolívares, elegí con qué tasa convertir: BCV, paralelo, USDT, euro "
         "oficial o euro paralelo. Por defecto viene BCV, que es la referencia legal.",
-        "Escribí el monto y la referencia de la operación.",
+        "Escribí el monto y la referencia de la operación. Si hace falta aclarar "
+        "algo, usá el campo Notas.",
         "Antes de guardar, mirá el saldo que va a quedar. Si no cuadra con lo que "
         "esperabas, revisá el monto o la tasa.",
     ])
@@ -527,6 +528,29 @@ def construir() -> Path:
         "El abono original no se borra: se registra un movimiento opuesto y quedan los "
         "dos visibles. Eso es lo que permite auditar la corrección en vez de taparla. "
         "Un abono ya reversado no se puede reversar otra vez."
+    )
+    pdf.p(
+        "Debajo de los abonos hay una casilla, marcada por defecto: \"Fue un error de "
+        "carga\". Con ella el reverso queda en la fecha del abono original, que es lo "
+        "correcto cuando el monto o el cliente estaban mal: ese día no entró esa plata. "
+        "Desmarcala solo si es una devolución que le hiciste hoy al cliente."
+    )
+    pdf.h2("Un abono cargado al cliente equivocado")
+    pdf.pasos([
+        "En Cobranza, buscá la venta del cliente equivocado y abrí \"Ver abonos\".",
+        "Escribí el motivo (por ejemplo \"era de Polanco, no de Anderson\"), dejá "
+        "marcada la casilla de error de carga y reversalo. La deuda de ese cliente "
+        "vuelve a lo que era.",
+        "Andá a Registrar abono y cargalo en la venta del cliente correcto, con la "
+        "misma fecha y el mismo monto.",
+        "Dejá la referencia vacía y anotala en Notas: el abono original, aunque esté "
+        "reversado, ya la tiene, y el sistema no deja que la misma transferencia "
+        "figure dos veces.",
+    ])
+    pdf.nota(
+        "No uses \"Rechazar\" en Confirmar pagos para esto",
+        "Rechazar significa que la plata no llegó al banco. Si llegó pero se anotó al "
+        "cliente equivocado, se reversa y se vuelve a cargar.",
     )
     pdf.h2("Anular una compra")
     pdf.p(
@@ -695,6 +719,9 @@ def construir() -> Path:
         ("Resumen",
          "La foto del día: ventas, cobros y lo que está por vencer. Es la pantalla con "
          "la que conviene empezar la jornada."),
+        ("Caja",
+         "Cuánta plata tiene el negocio y por qué movimiento llegó a eso. Se explica "
+         "más abajo."),
         ("Finanzas",
          "Ingresos, costos, margen y cuentas por pagar del período. Distingue la "
          "mercancía que entró del dinero que salió de caja, que son dos preguntas "
@@ -705,6 +732,38 @@ def construir() -> Path:
         ("Reportes",
          "Informes descargables para revisar fuera del sistema o compartir."),
     ])
+    pdf.h2("La caja")
+    pdf.p(
+        "Menú Gestión → Caja. Es el capital disponible que antes se llevaba a mano en "
+        "los informes: sube con cada cobro y baja con cada compra pagada y cada gasto. "
+        "Todo eso aparece solo; no hay que cargar nada dos veces."
+    )
+    pdf.p(
+        "Cada fila muestra el movimiento y el saldo que quedó después de él, contando "
+        "toda la historia. Arriba, el saldo de hoy, y para el período elegido cuánto "
+        "había al inicio, cuánto entró, cuánto salió y con cuánto cerró."
+    )
+    pdf.p(
+        "Lo único que se carga a mano, con el botón \"Aporte, retiro o ajuste\", es lo "
+        "que no pasa por otra pantalla:"
+    )
+    pdf.vinetas([
+        ("Aporte", "La plata que pone un socio, por ejemplo para pagar un lote."),
+        ("Retiro", "La plata que se lleva un socio."),
+        ("Ajuste", "Para arrancar la caja con un saldo inicial o cuadrarla contra lo "
+         "que hay de verdad. Puede sumar o restar."),
+    ])
+    pdf.p(
+        "Ponele siempre la fecha en que se movió la plata. Un movimiento cargado mal no "
+        "se borra: se anula con su motivo y deja de contar."
+    )
+    pdf.nota(
+        "Si la caja da negativa en algún momento, falta un aporte",
+        "La pantalla lo avisa. Casi siempre es una compra pagada con dinero de los "
+        "socios cuyo aporte no se registró. Un reverso de cobro no cuenta como salida: "
+        "resta de lo cobrado.",
+        alerta=True,
+    )
     pdf.h2("Auditoría")
     pdf.p(
         "Menú Gestión → Auditoría. Es el control de calidad del sistema y tiene cuatro "
